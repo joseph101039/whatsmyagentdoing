@@ -206,15 +206,62 @@ async function drawnLogos(target) {
   assert.equal(await page.locator('#pipBtn').count(),0);
   assert.equal(await page.evaluate(async()=>(await fetch('/popout.js')).status),404);
   check('the pop-out feature is gone');
+  // Scheduler: 5fps on a timer while calm, 30fps on rAF while lively or woken.
   const rate=await page.evaluate(()=>new Promise(r=>{
-   let n=0;const f=office.frame;office.frame=function(t){n++;return f.call(this,t)};
-   setTimeout(()=>{
-    const shown=n;n=0;Object.defineProperty(document,'hidden',{get:()=>true,configurable:true});
-    setTimeout(()=>{delete document.hidden;office.frame=f;r({shown,hidden:n})},600);
-   },1500);
+   let n=0,rafs=0;const f=office.frame,ra=window.requestAnimationFrame;
+   // A residual 3D camera glide would wake the scheduler; hold the view still.
+   const cu=office.controls&&office.controls.update;if(cu)office.controls.update=()=>false;
+   office.frame=function(t){n++;return f.call(this,t)};
+   window.requestAnimationFrame=(cb)=>{rafs++;return ra(cb)};
+   const dts=[];const st=office.step;office.step=function(dt){dts.push(dt);return st.call(this,dt)};
+   office.lively=()=>false;office.activeUntil=0;
+   setTimeout(()=>{n=0;rafs=0;dts.length=0;setTimeout(()=>{
+    const calm={frames:n,rafs,dt:dts.slice(1).reduce((x,y)=>x+y,0)/Math.max(1,dts.length-1)};
+    office.lively=()=>true;n=0;
+    setTimeout(()=>{
+     const lively=n;office.lively=()=>false;office.activeUntil=0;
+     setTimeout(()=>{
+      n=0;office.root.dispatchEvent(new PointerEvent('pointermove',{bubbles:true}));
+      setTimeout(()=>{
+       const woken=n;n=0;
+       Object.defineProperty(document,'hidden',{get:()=>true,configurable:true});document.dispatchEvent(new Event('visibilitychange'));
+       setTimeout(()=>{const hidden=n;delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));
+        delete office.frame;delete office.step;delete office.lively;window.requestAnimationFrame=ra;if(cu)delete office.controls.update;
+        r({calm,lively,woken,hidden});},700);
+      },500);
+     },1300);
+    },1000);
+   },2000);},400);
   }));
-  assert.ok(rate.shown>=36&&rate.shown<=48,`drew ${rate.shown} frames in 1.5s`);assert.equal(rate.hidden,0);
-  check('animation is capped at 30fps and stops while the page is hidden');
+  assert.ok(rate.calm.frames>=7&&rate.calm.frames<=12,`calm drew ${rate.calm.frames} frames in 2s`);
+  assert.ok(rate.calm.rafs<=rate.calm.frames+3,`calm made ${rate.calm.rafs} rAF calls for ${rate.calm.frames} frames`);
+  assert.ok(rate.calm.dt>0.15&&rate.calm.dt<=0.25,`calm step dt ${rate.calm.dt}`);
+  assert.ok(rate.lively>=24&&rate.lively<=32,`lively drew ${rate.lively} frames in 1s`);
+  assert.ok(rate.woken>=11,`pointer wake drew ${rate.woken} frames in 0.5s`);
+  assert.equal(rate.hidden,0);
+  const live=await page.evaluate(()=>{
+   const saved=[...office.people.values()].map(p=>({p,path:p.path,poi:p.poi,until:p.until}));
+   const cat=office.cat.path;office.cat.path=[];
+   for(const x of saved){x.p.path=[];x.p.until=Infinity;}
+   for(const q of office.plan.pois)if(q.pair)q.__t=q.taken,q.taken=null;
+   const still=office.lively();
+   const p=saved[0].p;p.path=[{x:p.x+1,y:p.y}];const walk=office.lively();p.path=[];
+   const pp=office.plan.pois.filter(q=>q.pair==='pp');const [a,b]=[saved[0].p,saved[1]?.p];
+   let game=null;if(b){pp[0].taken=a.key;pp[1].taken=b.key;const pa=a.poi,pb=b.poi;a.poi=pp[0];b.poi=pp[1];game=office.lively();a.poi=pa;b.poi=pb;pp[0].taken=pp[1].taken=null;}
+   for(const q of office.plan.pois)if(q.pair)q.taken=q.__t;
+   for(const x of saved){x.p.path=x.path;x.p.poi=x.poi;x.p.until=x.until;}office.cat.path=cat;
+   return {still,walk,game};
+  });
+  assert.deepEqual(live,{still:false,walk:true,game:true});
+  // A walk spanning several waypoints in one long calm step keeps true speed.
+  const stride=await page.evaluate(()=>{
+   const p=[...office.people.values()][0];const save={x:p.x,y:p.y,path:p.path,mode:p.mode,poi:p.poi,until:p.until};
+   p.x=1;p.y=1;p.path=[{x:1.1,y:1},{x:1.2,y:1},{x:1.6,y:1}];p.mode='work';const hover=office.hoverKey,hold=office.holdKey;
+   office.hoverKey=office.holdKey=null;
+   try{office.step(0.25);return p.x;}finally{Object.assign(p,save);office.hoverKey=hover;office.holdKey=hold;}
+  });
+  assert.ok(Math.abs(stride-1.525)<0.01,`walked to ${stride}`);
+  check('animation drops to 5fps on a timer while calm, runs 30fps while lively or woken, keeps walking speed, and stops while hidden');
   const batched=await page.evaluate(()=>{
    office.frame(performance.now());
    const meshes=[];office.room.traverse(o=>{if(o.isMesh)meshes.push(o)});
@@ -234,6 +281,11 @@ async function drawnLogos(target) {
    return {seatHeight:h0>0.3&&h0<0.75,disposed:disposed===old.length,rebatched:office.batches.length===old.length&&office.batches.every(g=>!old.includes(g))};
   });
   assert.deepEqual(rebuilt,{seatHeight:true,disposed:true,rebatched:true});
+  const glide=await page.evaluate(()=>{
+   office.activeUntil=0;office.camera.position.x+=0.5;office.frame(performance.now());
+   return office.activeUntil>performance.now()+100&&!office.lively.call({walking:()=>false,playing:()=>false});
+  });
+  assert.equal(glide,true,'a moving 3D camera keeps 30fps; 3D ignores the cat');
   check('3D merges static furniture (<300 draw calls) while screens, LEDs, ball, rods and the sky-tinted window stay live; seats stay measurable and rebuilds free old batches');
   await openSettings(page);await page.selectOption('#langSel','zh-TW');await page.keyboard.press('Escape');
   assert.equal(await page.locator('#focusBtn').getAttribute('aria-label'),'只看辦公室');

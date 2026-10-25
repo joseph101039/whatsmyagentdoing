@@ -9,7 +9,8 @@
   const WALL_H = 2.4;
   const WORKING = new Set(['thinking', 'tool', 'typing', 'waiting', 'error']);
   const MAX_WANDERERS = 7;
-  const FRAME_MS = 1000 / 30; // animation frame budget
+  const FRAME_MS = 1000 / 30; // frame budget while something moves
+  const CALM_MS = 1000 / 5;   // frame budget while everyone stays put
   const SPEED = 2.1; // tiles / second
 
   const SKIN = ['#f3cfb0', '#e5b38f', '#c98d66', '#9a6646', '#6e4630', '#f7dcc7'];
@@ -226,22 +227,72 @@
       // false if the renderer gave up (3D load failure).
       this.ready = new Promise((ok) => (this.markReady = ok));
       this.framesShown = 0;
-      // rAF fires at the display rate (60-120Hz); drawing cost is roughly
-      // fixed per frame, so cap it at 30fps and skip it while the page is hidden.
+      // Drawing cost is roughly fixed per frame, so CPU use follows the frame
+      // rate. While someone walks, plays or the view is being moved, frames
+      // run at 30fps on rAF. Otherwise they drop to 5fps on a timer: an idle
+      // rAF loop still wakes at the display rate (60-120Hz) and costs about
+      // as much as drawing at a few fps. One handle is pending at a time.
       this.drawnAt = -Infinity;
+      this.activeUntil = 0;
+      this.pending = null;
       const loop = (t) => {
+        this.pending = null;
         if (this.dead) return;
-        this.raf = requestAnimationFrame(loop);
-        if (document.hidden || t - this.drawnAt < FRAME_MS - 2) return;
-        this.drawnAt = t;
-        this.frame(t);
+        if (!document.hidden && t - this.drawnAt >= FRAME_MS - 2) {
+          this.drawnAt = t;
+          this.frame(t);
+        }
+        const hot = this.visible && !document.hidden && (performance.now() < this.activeUntil || this.lively());
+        if (hot) this.pending = { raf: requestAnimationFrame(loop) };
+        else this.pending = { timer: setTimeout(() => { this.pending = { raf: requestAnimationFrame(loop) }; }, CALM_MS) };
       };
-      this.raf = requestAnimationFrame(loop);
+      // Keep frames at 30fps for holdMs; cuts a pending calm wait short.
+      this.wake = (holdMs = 0) => {
+        if (this.dead) return;
+        this.activeUntil = Math.max(this.activeUntil, performance.now() + holdMs);
+        if (this.pending && this.pending.timer) {
+          clearTimeout(this.pending.timer);
+          this.pending = { raf: requestAnimationFrame(loop) };
+        }
+      };
+      this.onInput = () => this.wake(1000);
+      for (const ev of ['pointermove', 'pointerdown', 'wheel']) root.addEventListener(ev, this.onInput, { passive: true });
+      this.onVisibility = () => { if (!document.hidden) this.wake(500); };
+      document.addEventListener('visibilitychange', this.onVisibility);
+      this.pending = { raf: requestAnimationFrame(loop) };
+    }
+
+    // True while something on screen needs 30fps to look smooth: walking,
+    // a ping-pong or foosball game, or the camera still settling. Sitting,
+    // lounging and screen glow are fine at the calm rate.
+    lively() {
+      return this.walking() || this.playing() || this.cat.path.length > 0 || !this.camSettled;
+    }
+
+    walking() {
+      for (const p of this.people.values()) if (p.path.length && !this.held(p)) return true;
+      return false;
+    }
+
+    // Same conditions the renderers use: the ball flies once both players
+    // stand at the table; foosball rods move once both handles are taken.
+    playing() {
+      const pp = this.plan.pois
+        .filter((q) => q.pair === 'pp' && q.taken)
+        .map((q) => this.people.get(q.taken))
+        .filter((p) => p && p.poi && p.poi.pair === 'pp' && !p.path.length).length === 2;
+      return pp || this.plan.pois.filter((q) => q.pair === 'fb' && q.taken).length === 2;
     }
 
     destroy() {
       this.dead = true;
-      cancelAnimationFrame(this.raf);
+      if (this.pending) {
+        cancelAnimationFrame(this.pending.raf);
+        clearTimeout(this.pending.timer);
+        this.pending = null;
+      }
+      for (const ev of ['pointermove', 'pointerdown', 'wheel']) this.root.removeEventListener(ev, this.onInput);
+      document.removeEventListener('visibilitychange', this.onVisibility);
       this.ro.disconnect();
       this.theme.removeEventListener('change', this.onTheme);
       this.canvas.remove();
@@ -547,6 +598,12 @@
           this.goTo(p, this.plan.door);
         }
       }
+      // A changed roster or status redraws now instead of on the next calm frame.
+      const sig = sessions.map((s) => `${s.key}:${s.status}:${s.tool || ''}`).join('|');
+      if (sig !== this.sig) {
+        this.sig = sig;
+        if (this.wake) this.wake(300);
+      }
       this.first = false;
     }
 
@@ -624,6 +681,7 @@
       this.canvas.style.width = this.cw + 'px';
       this.canvas.style.height = this.ch + 'px';
       this.dpr = dpr;
+      if (this.wake) this.wake(500);
     }
 
     fitCamera() {
@@ -634,6 +692,7 @@
       const want = { zoom, ox: this.cw / 2 - ((left + right) / 2) * zoom, oy: this.ch / 2 - ((top + bottom) / 2) * zoom };
       if (!this.cam) this.cam = want;
       else for (const k of ['zoom', 'ox', 'oy']) this.cam[k] += (want[k] - this.cam[k]) * 0.1;
+      this.camSettled = Math.abs(want.ox - this.cam.ox) < 0.5 && Math.abs(want.oy - this.cam.oy) < 0.5 && Math.abs(want.zoom - this.cam.zoom) < 0.002;
     }
 
     pointer(e, click) {
@@ -1470,12 +1529,13 @@
         k.path = grid.path(k.x, k.y, tx, ty);
         k.until = Infinity;
       }
-      if (k.path.length) {
+      let v = 1.2 * dt;
+      while (v > 0 && k.path.length) {
         const n = k.path[0];
-        const dx = n.x - k.x, dy = n.y - k.y, d = Math.hypot(dx, dy), v = 1.2 * dt;
+        const dx = n.x - k.x, dy = n.y - k.y, d = Math.hypot(dx, dy);
         if (d > 0.001) k.face = dx - dy >= 0 ? 1 : -1;
-        if (d <= v) { k.x = n.x; k.y = n.y; k.path.shift(); if (!k.path.length) k.until = now + rand(4000, 12000); }
-        else { k.x += (dx / d) * v; k.y += (dy / d) * v; }
+        if (d <= v) { k.x = n.x; k.y = n.y; k.path.shift(); v -= d; if (!k.path.length) k.until = now + rand(4000, 12000); }
+        else { k.x += (dx / d) * v; k.y += (dy / d) * v; v = 0; }
       }
     }
 
@@ -1530,7 +1590,8 @@
     // ------------------------------------------------------------ frame
 
     frame(now) {
-      const dt = Math.min(0.05, (now - this.last) / 1000);
+      // 0.25s covers a calm 5fps frame; longer gaps (a hidden page) are not replayed.
+      const dt = Math.min(0.25, (now - this.last) / 1000);
       this.last = now;
       this.t = now;
       if (!this.visible) return;
@@ -1550,11 +1611,16 @@
           this.wander(p, wall);
         }
         if (p.path.length) {
-          const n = p.path[0];
-          const dx = n.x - p.x, dy = n.y - p.y, d = Math.hypot(dx, dy), v = SPEED * dt;
-          if (d > 0.001) p.walkFace = dx + dy >= 0 ? 'front' : 'back';
-          if (d <= v) { p.x = n.x; p.y = n.y; p.path.shift(); }
-          else { p.x += (dx / d) * v; p.y += (dy / d) * v; }
+          // Distance left after reaching a waypoint carries on to the next,
+          // so long calm-rate steps keep true walking speed.
+          let v = SPEED * dt;
+          while (v > 0 && p.path.length) {
+            const n = p.path[0];
+            const dx = n.x - p.x, dy = n.y - p.y, d = Math.hypot(dx, dy);
+            if (d > 0.001) p.walkFace = dx + dy >= 0 ? 'front' : 'back';
+            if (d <= v) { p.x = n.x; p.y = n.y; p.path.shift(); v -= d; }
+            else { p.x += (dx / d) * v; p.y += (dy / d) * v; v = 0; }
+          }
         } else if (p.leaving) {
           this.people.delete(k);
         }

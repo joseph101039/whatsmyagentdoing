@@ -1237,7 +1237,7 @@ export class Office3D extends window.Office {
       for (const a of this.actors.values()) this.scene.remove(a.obj, a.prop);
       this.actors.clear();
     }
-    const dt = Math.min(0.05, this.clock.getDelta());
+    const dt = Math.min(0.25, this.clock.getDelta());
     const t = this.t / 1000;
 
     // lighting follows the time of day
@@ -1275,7 +1275,9 @@ export class Office3D extends window.Office {
     this.updateBall();
 
     this.syncActors(dt);
-    this.controls.update();
+    // OrbitControls damps by a fixed fraction per update, so a glide after
+    // a drag or zoom keeps the 30fps rate until it stops.
+    if (this.controls.update()) this.wake(300);
     this.gl.render(this.scene, this.camera);
 
     // overlay: bubbles + name tags, reusing the 2D drawing code
@@ -1319,6 +1321,11 @@ export class Office3D extends window.Office {
     const k = (this.t / 900) % 2;
     const f = k < 1 ? k : 2 - k;
     this.ball.position.set(pp.x0 + 0.3 + f * (pp.x1 - pp.x0 - 0.6), 0.8 + Math.abs(Math.sin(f * Math.PI * 2)) * 0.4, pp.y);
+  }
+
+  // No cat in 3D, and the camera is the user's OrbitControls view.
+  lively() {
+    return this.walking() || this.playing();
   }
 
   pointer(e, click) {
