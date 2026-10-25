@@ -137,6 +137,19 @@
   .foot .model { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .copy { margin-left: auto; border: 0; background: none; color: var(--faint); font: inherit; font-size: 11.5px; cursor: pointer; padding: 0; flex: none; }
   .copy:hover { color: var(--ink); }
+  .close { margin-left: auto; border: 0; background: none; color: var(--faint); font: inherit; font-size: 11.5px; cursor: pointer; padding: 0; flex: none; }
+  .close + .copy { margin-left: 0; }
+  .close:hover, .close.armed { color: var(--error); }
+  .close.armed { font-weight: 600; }
+  .close:disabled { cursor: default; color: var(--muted); }
+  .spawned { color: var(--faint); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  section.ended summary { list-style: none; cursor: pointer; }
+  section.ended summary::-webkit-details-marker { display: none; }
+  section.ended summary h2::before { content: "▸"; }
+  section.ended details[open] summary h2::before { content: "▾"; }
+  section.ended .grid { margin-top: 10px; }
+  .feed-down { margin-bottom: 14px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--waiting) 55%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--waiting) 12%, var(--panel)); color: var(--ink); font-size: 12.5px; }
+  body.pip .feed-down { display: none; }
 
   [data-s="thinking"] { --s: var(--thinking); }
   [data-s="tool"] { --s: var(--tool); }
@@ -264,6 +277,7 @@
       </details>
     </div>
   </header>
+  <div class="feed-down" id="feedDown" role="status" hidden></div>
   <p class="pip-error" id="pipError" role="alert" hidden></p>
   <div class="pip-preview" id="pipPreview" hidden>
     <p data-t="pipVideoHint"></p>
@@ -351,6 +365,9 @@ if (PIP) document.body.classList.add('pip');
     } catch { /* malformed preferences use the saved defaults */ }
   }
   for (const k of ['view', 'quality', 'scene', 'lang']) if (validPreference(k, q.get(k))) store.set(k, q.get(k));
+  // sub=1 (the AgentDeck window): show subagents unless you chose otherwise,
+  // so a Codex run started by Claude is visible on first open.
+  if (q.get('sub') === '1' && store.get('showSub', null) === null) store.set('showSub', true);
   if (location.search) history.replaceState(null, '', location.pathname + (PIP ? '?pip=1' : ''));
 }
 
@@ -416,10 +433,29 @@ function agentLogo(agent) {
   return badge ? `<img class="agent-logo" src="${badge.logo}" alt="" aria-hidden="true">` : '';
 }
 
+// Close button state per session key, kept outside the markup because cards
+// are re-rendered every second while a tooltip is pinned.
+const closing = new Map(); // key -> { phase: 'armed'|'sending'|'closed'|'failed', until, reason }
+function closeButton(s) {
+  const c = closing.get(s.key);
+  if (!c && !s.closable) return '';
+  const label = !c ? L.close : c.phase === 'armed' ? L.confirmClose : c.phase === 'sending' ? '…'
+    : c.phase === 'closed' ? L.closed : L.closeFailed + (c.reason ? ` (${c.reason})` : '');
+  return `<button class="close${c && c.phase === 'armed' ? ' armed' : ''}" data-close="${esc(s.key)}"${c && c.phase !== 'armed' ? ' disabled' : ''}>${esc(label)}</button>`;
+}
+
+function spawnedLine(s) {
+  if (!s.spawnedBy) return '';
+  const p = state.data.sessions.find((x) => x.key === `${s.spawnedBy}:${s.parentId}`);
+  const name = (p && (p.project || p.title)) || String(s.parentId || '').slice(0, 8);
+  return `<div class="spawned">${esc(L.spawnedBy(name))}</div>`;
+}
+
 function card(s, now) {
   const project = s.project || (s.cwd ? s.cwd : '—');
   const title = s.title && s.title !== project ? `<div class="title" title="${esc(s.title)}">${esc(s.title)}</div>` : '';
-  const act = s.activity ? `<span class="act" title="${esc(s.activity)}">${esc(s.activity)}</span>` : '';
+  const activity = s.status === 'waiting' && s.waitingReason ? s.waitingReason : s.activity;
+  const act = activity ? `<span class="act" title="${esc(activity)}">${esc(activity)}</span>` : '';
   const showText = !s.subagent || ACTIVE.has(s.status);
   const q = showText && s.prompt ? `<div class="q" title="${esc(s.prompt)}">${esc(s.prompt)}</div>` : '';
   const r = showText && s.reply && !ACTIVE.has(s.status) ? `<div class="r" title="${esc(s.reply)}">${esc(s.reply)}</div>` : '';
@@ -432,10 +468,10 @@ function card(s, now) {
       <span class="project" title="${esc(s.cwd)}">${esc(project)}</span>
       <span class="time" data-time="${esc(s.key)}">${esc(timeLabel(s, now))}</span>
     </div>
-    ${title}
+    ${title}${spawnedLine(s)}
     <div class="status"><span class="ind"><i></i><i></i><i></i></span><span class="lbl">${esc(L[s.status] || s.status)}</span>${act}</div>
     ${err}${q}${r}
-    <div class="foot"><span class="model">${esc((s.model || '') + sub)}</span><button class="copy" data-copy="${esc(resumeCmd(s))}">${L.copy}</button></div>
+    <div class="foot"><span class="model">${esc((s.model || '') + sub)}</span>${closeButton(s)}<button class="copy" data-copy="${esc(resumeCmd(s))}">${L.copy}</button></div>
   </div>`;
 }
 
@@ -450,8 +486,15 @@ function render() {
   const now = Date.now() - state.skew;
   const list = visible();
   const all = state.data.sessions.filter((s) => (state.agent === 'all' || s.agent === state.agent) && (state.showSub || !s.subagent));
+  // AgentDeck feed: sessions that ended carry alive=false; they only appear
+  // in the collapsed "Ended" group.
+  const present = all.filter((s) => s.alive !== false);
+  const feedReason = state.data.feed?.mode === 'logs' && state.data.feed.reason;
+  const feedDown = document.getElementById('feedDown');
+  feedDown.hidden = !feedReason;
+  if (feedReason) feedDown.textContent = L.feedDown(feedReason);
 
-  const count = (f) => all.filter((s) => f(s.status)).length;
+  const count = (f) => present.filter((s) => f(s.status)).length;
   document.getElementById('summary').innerHTML = GROUPS.slice(0, 3).map((g) => {
     const n = count(g.match);
     const color = g.key === 'needsYou' ? 'var(--waiting)' : g.key === 'working' ? 'var(--tool)' : 'var(--done)';
@@ -483,22 +526,37 @@ function render() {
     return;
   }
   if (officeMode) {
-    main.innerHTML = officeList.length ? '' : `<div class="empty">${esc(L.empty)}</div>`;
-    document.getElementById('officeWrap').style.display = officeList.length ? '' : 'none';
+    main.innerHTML = present.length ? '' : `<div class="empty">${esc(L.empty)}</div>`;
+    document.getElementById('officeWrap').style.display = present.length ? '' : 'none';
     refreshTip();
     return;
   }
   const groups = PIP ? GROUPS.slice(0, 2) : GROUPS;
-  if (!list.some((s) => groups.some((g) => g.match(s.status)))) {
+  const live = list.filter((s) => s.alive !== false);
+  const ended = PIP ? [] : all.filter((s) => s.alive === false);
+  if (!live.some((s) => groups.some((g) => g.match(s.status))) && !ended.length) {
     main.innerHTML = `<div class="empty">${esc(PIP ? L.pipQuiet : L.empty)}</div>`;
     return;
   }
   main.innerHTML = groups.map((g) => {
-    const items = list.filter((s) => g.match(s.status));
+    const items = live.filter((s) => g.match(s.status));
     if (!items.length) return '';
     return `<section><h2>${L[g.key]} <span class="n">${items.length}</span></h2><div class="grid">${items.map((s) => card(s, now)).join('')}</div></section>`;
-  }).join('');
+  }).join('') + endedSection(ended, now);
 }
+
+// Collapsed by default; cards are only built while it is open.
+function endedSection(items, now) {
+  if (!items.length) return '';
+  const body = state.endedOpen ? `<div class="grid">${items.map((s) => card(s, now)).join('')}</div>` : '';
+  return `<section class="ended"><details${state.endedOpen ? ' open' : ''}><summary><h2>${esc(L.ended)} <span class="n">${items.length}</span></h2></summary>${body}</details></section>`;
+}
+// toggle doesn't bubble; listen in the capture phase.
+document.getElementById('main').addEventListener('toggle', (e) => {
+  if (!e.target.closest || !e.target.closest('section.ended') || state.endedOpen === e.target.open) return;
+  state.endedOpen = e.target.open;
+  render();
+}, true);
 
 function tickTimes() {
   if (tipKey) refreshTip();
@@ -590,6 +648,28 @@ function syncControls() {
   else if (Notification.permission === 'granted') { notifyBtn.textContent = L.notifyOn; notifyBtn.disabled = true; }
 }
 notifyBtn.addEventListener('click', () => Notification.requestPermission().then(syncControls));
+
+// Two clicks within 4s close a session (WKWebView has no window.confirm).
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-close]'); if (!b || b.disabled) return;
+  const key = b.dataset.close;
+  const c = closing.get(key);
+  if (!c || c.phase !== 'armed' || Date.now() > c.until) {
+    const until = Date.now() + 4000;
+    closing.set(key, { phase: 'armed', until });
+    setTimeout(() => { if (closing.get(key)?.until === until) { closing.delete(key); render(); } }, 4050);
+    render();
+    return;
+  }
+  closing.set(key, { phase: 'sending' });
+  render();
+  const r = await fetch(`/api/sessions/close?key=${encodeURIComponent(key)}`, { method: 'POST', headers: { 'x-whatsmyagentdoing': 'close' } })
+    .then((x) => x.json()).catch(() => ({ ok: false }));
+  const done = r.ok ? { phase: 'closed' } : { phase: 'failed', reason: r.reason };
+  closing.set(key, done);
+  render();
+  setTimeout(() => { if (closing.get(key) === done) { closing.delete(key); render(); } }, r.ok ? 8000 : 5000);
+});
 
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-copy]'); if (!b) return;

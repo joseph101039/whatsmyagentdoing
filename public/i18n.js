@@ -24,6 +24,8 @@
       thinking: 'Thinking', tool: 'Running', typing: 'Writing reply', waiting: 'Waiting for you', done: 'Done', interrupted: 'Interrupted', error: 'Error',
       copy: 'Copy resume cmd', copied: 'Copied ✓', sub: 'subagent', auto: 'Auto',
       empty: 'No Claude Code, Codex or Gemini CLI sessions in the time window. Start one and it shows up here.',
+      close: 'Close', confirmClose: 'Confirm close?', closed: 'Closed ✓', closeFailed: "Couldn't close", ended: 'Ended',
+      spawnedBy: (p) => `↳ started by ${p}`, feedDown: (r) => `AgentDeck isn't running — guessing from logs for now (${r})`,
       doneNote: (p) => `${p} is done`,
     },
     'zh-TW': {
@@ -47,6 +49,8 @@
       thinking: '思考中', tool: '執行中', typing: '回覆中', waiting: '等你回應', done: '已完成', interrupted: '已中斷', error: '錯誤',
       copy: '複製接續指令', copied: '已複製 ✓', sub: '子 agent', auto: '自動',
       empty: '這段時間內沒有 Claude Code、Codex 或 Gemini CLI session。開一個就會出現在這裡。',
+      close: '關閉', confirmClose: '確認關閉？', closed: '已關閉 ✓', closeFailed: '關閉失敗', ended: '已結束',
+      spawnedBy: (p) => `↳ 由 ${p} 叫起`, feedDown: (r) => `AgentDeck 未在執行，暫以 log 推測（${r}）`,
       doneNote: (p) => `${p} 完成了`,
     },
     'zh-CN': {
@@ -70,6 +74,8 @@
       thinking: '思考中', tool: '执行中', typing: '回复中', waiting: '等你回应', done: '已完成', interrupted: '已中断', error: '错误',
       copy: '复制续接命令', copied: '已复制 ✓', sub: '子 agent', auto: '自动',
       empty: '这段时间内没有 Claude Code、Codex 或 Gemini CLI 会话。开一个就会出现在这里。',
+      close: '关闭', confirmClose: '确认关闭？', closed: '已关闭 ✓', closeFailed: '关闭失败', ended: '已结束',
+      spawnedBy: (p) => `↳ 由 ${p} 启动`, feedDown: (r) => `AgentDeck 未在运行，暂以日志推测（${r}）`,
       doneNote: (p) => `${p} 完成了`,
     },
     ja: {
@@ -93,6 +99,8 @@
       thinking: '考え中', tool: '実行中', typing: '返信中', waiting: 'あなた待ち', done: '完了', interrupted: '中断', error: 'エラー',
       copy: '再開コマンドをコピー', copied: 'コピーしました ✓', sub: 'サブ', auto: '自動',
       empty: 'この期間の Claude Code・Codex・Gemini CLI セッションはありません。始めるとここに表示されます。',
+      close: '終了', confirmClose: '終了しますか？', closed: '終了しました ✓', closeFailed: '終了できませんでした', ended: '終了済み',
+      spawnedBy: (p) => `↳ ${p} から起動`, feedDown: (r) => `AgentDeck が動いていません — ログから推測しています（${r}）`,
       doneNote: (p) => `${p} が完了しました`,
     },
     ko: {
@@ -116,6 +124,8 @@
       thinking: '생각 중', tool: '실행 중', typing: '답변 작성 중', waiting: '응답 대기', done: '완료', interrupted: '중단됨', error: '오류',
       copy: '이어하기 명령 복사', copied: '복사됨 ✓', sub: '하위', auto: '자동',
       empty: '이 기간에 Claude Code, Codex, Gemini CLI 세션이 없습니다. 시작하면 여기에 나타납니다.',
+      close: '종료', confirmClose: '종료할까요?', closed: '종료됨 ✓', closeFailed: '종료하지 못했습니다', ended: '끝남',
+      spawnedBy: (p) => `↳ ${p}에서 시작됨`, feedDown: (r) => `AgentDeck가 실행 중이 아닙니다 — 로그로 추정합니다 (${r})`,
       doneNote: (p) => `${p} 완료`,
     },
     es: {
@@ -139,6 +149,8 @@
       thinking: 'Pensando', tool: 'Ejecutando', typing: 'Escribiendo', waiting: 'Esperándote', done: 'Listo', interrupted: 'Interrumpido', error: 'Error',
       copy: 'Copiar comando', copied: 'Copiado ✓', sub: 'subagente', auto: 'Auto',
       empty: 'No hay sesiones de Claude Code, Codex ni Gemini CLI en este periodo. Inicia una y aparecerá aquí.',
+      close: 'Cerrar', confirmClose: '¿Confirmar cierre?', closed: 'Cerrada ✓', closeFailed: 'No se pudo cerrar', ended: 'Terminadas',
+      spawnedBy: (p) => `↳ iniciada por ${p}`, feedDown: (r) => `AgentDeck no está en ejecución — estimando a partir de los registros (${r})`,
       doneNote: (p) => `${p} terminó`,
     },
     fr: {
@@ -162,6 +174,8 @@
       thinking: 'Réfléchit', tool: 'Exécute', typing: 'Rédige', waiting: 'Vous attend', done: 'Terminé', interrupted: 'Interrompu', error: 'Erreur',
       copy: 'Copier la commande', copied: 'Copié ✓', sub: 'sous-agent', auto: 'Auto',
       empty: 'Aucune session Claude Code, Codex ou Gemini CLI sur la période. Lancez-en une, elle apparaîtra ici.',
+      close: 'Fermer', confirmClose: 'Confirmer la fermeture ?', closed: 'Fermée ✓', closeFailed: 'Impossible de fermer', ended: 'Terminées',
+      spawnedBy: (p) => `↳ lancée par ${p}`, feedDown: (r) => `AgentDeck ne tourne pas — estimation à partir des journaux (${r})`,
       doneNote: (p) => `${p} a terminé`,
     },
     de: {
@@ -185,6 +199,8 @@
       thinking: 'Denkt nach', tool: 'Führt aus', typing: 'Schreibt Antwort', waiting: 'Wartet auf dich', done: 'Fertig', interrupted: 'Abgebrochen', error: 'Fehler',
       copy: 'Befehl kopieren', copied: 'Kopiert ✓', sub: 'Sub-Agent', auto: 'Auto',
       empty: 'Keine Claude-Code-, Codex- oder Gemini-CLI-Sitzungen im Zeitraum. Starte eine, dann erscheint sie hier.',
+      close: 'Beenden', confirmClose: 'Wirklich beenden?', closed: 'Beendet ✓', closeFailed: 'Konnte nicht beenden', ended: 'Beendet',
+      spawnedBy: (p) => `↳ gestartet von ${p}`, feedDown: (r) => `AgentDeck läuft nicht — Schätzung aus den Logs (${r})`,
       doneNote: (p) => `${p} ist fertig`,
     },
     pt: {
@@ -208,6 +224,8 @@
       thinking: 'Pensando', tool: 'Executando', typing: 'Escrevendo', waiting: 'Esperando você', done: 'Concluído', interrupted: 'Interrompido', error: 'Erro',
       copy: 'Copiar comando', copied: 'Copiado ✓', sub: 'subagente', auto: 'Auto',
       empty: 'Nenhuma sessão de Claude Code, Codex ou Gemini CLI no período. Inicie uma e ela aparece aqui.',
+      close: 'Fechar', confirmClose: 'Confirmar fechamento?', closed: 'Fechada ✓', closeFailed: 'Não foi possível fechar', ended: 'Encerradas',
+      spawnedBy: (p) => `↳ iniciada por ${p}`, feedDown: (r) => `AgentDeck não está em execução — estimando pelos registros (${r})`,
       doneNote: (p) => `${p} terminou`,
     },
   };

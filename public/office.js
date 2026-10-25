@@ -469,6 +469,8 @@
     // ------------------------------------------------------------ sessions → people
 
     update(sessions) {
+      // With the AgentDeck feed, only sessions still running are in the office.
+      if (sessions.some((s) => 'alive' in s)) sessions = sessions.filter((s) => s.alive !== false);
       const working = sessions.filter((s) => WORKING.has(s.status));
       const off = sessions
         .filter((s) => !WORKING.has(s.status))
