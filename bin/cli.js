@@ -211,6 +211,8 @@ async function main() {
       else { console.error(err.message); process.exit(1); }
     });
     server.listen(port, '127.0.0.1', () => {
+      // Callbacks from ports that were busy fire too once a later one binds.
+      if (server.address().port !== port) return;
       const url = `http://localhost:${port}`;
       const n = watcher.sessions().length;
       const openUrl = url + query;
