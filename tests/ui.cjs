@@ -197,84 +197,92 @@ async function drawnLogos(target) {
   await screenshot(page, 'office-3d');
   assert.deepEqual(await drawnLogos(page),['claude','codex','gemini']);
   check('3D renders the same provider badges');
-  await page.click('#pipBtn');await page.waitForFunction(()=>!!popout.win);
-  const pip=context.pages().find(p=>p!==page);assert.ok(pip);
-  const frame=await (async()=>{for(let i=0;i<100;i++){const f=pip.frames().find(f=>f.url().includes('?pip=1'));if(f)return f;await new Promise(r=>setTimeout(r,50))}throw Error('No compact frame')})();
-  await frame.waitForFunction(()=>office?.loaded&&office.framesShown>4);
-  await frame.evaluate(s=>{window.__events?.close();onData({now:Date.now(),sessions:s})},sessions);
-  assert.deepEqual(await drawnLogos(frame),['claude','codex','gemini']);
-  assert.equal(await page.evaluate(()=>office.visible),false);
-  assert.equal(await frame.evaluate(()=>state.quality),'high');
-  assert.equal(await frame.locator('#pipBtn').isVisible(),false);
-  await pip.setViewportSize({width:480,height:400});
-  await frame.waitForFunction(()=>!document.getElementById('office').classList.contains('loading'));await page.waitForTimeout(400);await screenshot(pip, 'pip-3d');
-  assert.equal(await frame.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-  check('real Document PiP opens 3D at compact size and suspends the main office');
-  await openSettings(page);await page.uncheck('#showAgent');await frame.waitForFunction(()=>!state.showAgent&&!office.showAgent);
-  await openSettings(page);await page.selectOption('#langSel','zh-TW');await frame.waitForFunction(()=>langCode==='zh-TW');
-  await openSettings(page);await page.click('#agentSeg [data-v=codex]');await frame.waitForFunction(()=>state.agent==='codex');
-  await frame.click('#viewSeg [data-v=list]');await page.waitForFunction(()=>state.view==='list');
-  assert.equal(await frame.locator('section').count(),2);
-  assert.equal(await frame.locator('.card[data-s=done]').count(),0);
-  assert.equal(await frame.locator('.card .agent.claude').count(),0);
-  assert.equal(await frame.locator('.card .agent img').evaluateAll(imgs=>imgs.length>0&&imgs.every(img=>img.complete&&img.naturalWidth>0)),true);
-  await screenshot(pip, 'pip-list');
-  check('preferences synchronize in both directions; compact list shows only attention/working sessions');
-  const next=sessions.map(s=>s.key==='codex:sub'?{...s,status:'done',subagent:false}:s);
-  await frame.evaluate(s=>onData({now:Date.now(),sessions:s}),next);
-  await page.evaluate(s=>onData({now:Date.now(),sessions:s}),next);
-  assert.equal(await frame.evaluate(()=>__notifications.length),0);
-  assert.equal(await page.evaluate(()=>__notifications.length),1);
-  check('only the main page emits completion notifications');
-  await openSettings(page);await page.click('#agentSeg [data-v=all]');
-  await frame.click('#viewSeg [data-v=office]');await openSettings(page);await page.check('#showAgent');await frame.click('#qualSeg [data-v=mid]');
-  await frame.waitForFunction(()=>officeKind==='mid'&&office.framesShown>4);
-  await page.waitForFunction(()=>state.quality==='mid');
-  const foreground=await context.newPage();await foreground.goto('about:blank');await foreground.bringToFront();
-  const before=await frame.evaluate(()=>({frames:office.framesShown,visible:document.visibilityState}));
-  await new Promise(r=>setTimeout(r,1100));
-  const after=await frame.evaluate(()=>({frames:office.framesShown,visible:document.visibilityState}));
-  assert.ok(after.frames>before.frames,JSON.stringify({before,after}));
-  await foreground.close();check('pop-out keeps animating while another tab is foreground');
-  await pip.close();await page.waitForFunction(()=>!popout.win&&office.visible);
-  await page.bringToFront();await page.waitForFunction(()=>office.framesShown>4);
-  await page.click('#pipBtn');await page.waitForFunction(()=>!!popout.win);
-  await page.click('#pipBtn');await page.waitForFunction(()=>!popout.win&&office.visible);
-  check('native close and button close restore the main view; reopening works');
-  await page.evaluate(()=>{documentPictureInPicture.requestWindow=()=>Promise.reject(new Error('Test rejection'))});
-  await page.click('#pipBtn');await page.waitForFunction(()=>!popout.busy&&!document.getElementById('pipError').hidden);
-  assert.equal(await page.evaluate(()=>office.visible),true);
-  assert.equal(await page.locator('#pipBtn').isEnabled(),true);
-  check('request failure gives a translated error and leaves the dashboard usable');
-  // Force only the capability branch; rendering and MediaStream remain real.
-  const fallback=await context.newPage();
-  await fallback.addInitScript(()=>Object.defineProperty(window,'documentPictureInPicture',{value:undefined}));
-  await fallback.goto(base+'/?view=office&quality=high');await stable(fallback);
-  await fallback.waitForFunction(()=>office.loaded&&office.framesShown>4);
-  await fallback.click('#pipBtn');
-  await fallback.waitForFunction(()=>!!popout.stream&&!popout.busy&&document.getElementById('pipVideo').videoWidth>0);
-  assert.equal(await fallback.locator('#pipPreview').isVisible(),true);
-  const colors=await fallback.evaluate(()=>{
-   const data=popout.captureContext.getImageData(0,0,960,540).data;const values=new Set();
-   for(let i=0;i<data.length;i+=160)values.add(`${data[i]},${data[i+1]},${data[i+2]}`);
-   window.__stream=popout.stream;return values.size;
+  const other=await context.newPage();await other.goto(base);await stable(other);
+  await openSettings(page);await page.click('#agentSeg [data-v=codex]');await other.waitForFunction(()=>state.agent==='codex');
+  await openSettings(other);await other.click('#agentSeg [data-v=all]');await page.waitForFunction(()=>state.agent==='all');
+  await other.close();await page.bringToFront();await page.keyboard.press('Escape');
+  await page.waitForFunction(()=>office?.framesShown>4,{},{timeout:30000});
+  check('preferences synchronize between open tabs in both directions');
+  assert.equal(await page.locator('#pipBtn').count(),0);
+  assert.equal(await page.evaluate(async()=>(await fetch('/popout.js')).status),404);
+  check('the pop-out feature is gone');
+  const rate=await page.evaluate(()=>new Promise(r=>{
+   let n=0;const f=office.frame;office.frame=function(t){n++;return f.call(this,t)};
+   setTimeout(()=>{
+    const shown=n;n=0;Object.defineProperty(document,'hidden',{get:()=>true,configurable:true});
+    setTimeout(()=>{delete document.hidden;office.frame=f;r({shown,hidden:n})},600);
+   },1500);
+  }));
+  assert.ok(rate.shown>=36&&rate.shown<=48,`drew ${rate.shown} frames in 1.5s`);assert.equal(rate.hidden,0);
+  check('animation is capped at 30fps and stops while the page is hidden');
+  const batched=await page.evaluate(()=>{
+   office.frame(performance.now());
+   const meshes=[];office.room.traverse(o=>{if(o.isMesh)meshes.push(o)});
+   const inRoom=(o)=>{for(let x=o;x;x=x.parent)if(x===office.room)return true;return false};
+   const scr=[...office.screens.values()][0];
+   return {calls:office.gl.info.render.calls,meshes:meshes.length,batches:office.batches.length,
+    screens:[...office.screens.values()].every(inRoom),ball:inRoom(office.ball),rods:office.rods.every(inRoom),
+    leds:office.blinkers.every(b=>inRoom(b.m)),screenOwnMaterial:!!scr&&!meshes.some(m=>m!==scr&&m.material===scr.material),
+    window:meshes.some(m=>m.material===office.windowMat)};
   });
-  assert.ok(colors>20,'preview includes rendered 3D content rather than a blank frame');
-  await fallback.click('#qualSeg [data-v=mid]');await fallback.waitForFunction(()=>officeKind==='mid'&&office.framesShown>4);
-  assert.equal(await fallback.evaluate(()=>popout.stream===__stream),true);
-  await fallback.click('#closePreview');await fallback.waitForFunction(()=>!popout.stream);
-  assert.equal(await fallback.evaluate(()=>__stream.getTracks().every(t=>t.readyState==='ended')),true);
-  assert.equal(await fallback.evaluate(()=>document.getElementById('pipVideo').srcObject),null);
-  check('video fallback captures 3D + overlay, survives renderer changes and releases media tracks on stop');
-  await fallback.click('#viewSeg [data-v=list]');assert.equal(await fallback.locator('#pipBtn').isVisible(),false);
-  check('view-only fallback is offered only for office mode');
-  const compact=await context.newPage();await compact.goto(base+'/?pip=1&view=list');
-  await compact.waitForFunction(()=>state.loaded);
-  await compact.evaluate(()=>{__events.close();onData({now:Date.now(),sessions:[]})});
-  assert.match(await compact.locator('#main').innerText(),/目前沒有|No agents/);
-  await compact.reload();assert.equal(await compact.evaluate(()=>PIP),true);
-  check('empty compact list explains the quiet state and retains compact mode after reload');
-  await page.bringToFront();
+  assert.ok(batched.calls<300,`${batched.calls} draw calls`);assert.ok(batched.meshes<200,`${batched.meshes} meshes`);assert.ok(batched.batches>10);
+  assert.deepEqual({...batched,calls:0,meshes:0,batches:0},{calls:0,meshes:0,batches:0,screens:true,ball:true,rods:true,leds:true,screenOwnMaterial:true,window:true});
+  const rebuilt=await page.evaluate(()=>{
+   const seat=office.plan.desks[0].seat;const h0=office.surfaceBelow(seat.x,seat.y,0.75);
+   const old=[...office.batches];let disposed=0;for(const g of old)g.addEventListener('dispose',()=>disposed++);
+   office.builtPlan=null;office.frame(performance.now());
+   return {seatHeight:h0>0.3&&h0<0.75,disposed:disposed===old.length,rebatched:office.batches.length===old.length&&office.batches.every(g=>!old.includes(g))};
+  });
+  assert.deepEqual(rebuilt,{seatHeight:true,disposed:true,rebatched:true});
+  check('3D merges static furniture (<300 draw calls) while screens, LEDs, ball, rods and the sky-tinted window stay live; seats stay measurable and rebuilds free old batches');
+  await openSettings(page);await page.selectOption('#langSel','zh-TW');await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#focusBtn').getAttribute('aria-label'),'只看辦公室');
+  await openSettings(page);await page.selectOption('#langSel','auto');await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#focusBtn').getAttribute('aria-label'),'Office only');
+  await page.click('#focusBtn');
+  const focusState=()=>page.evaluate(()=>{
+   const ex=document.getElementById('focusExit').getBoundingClientRect();
+   return {focus:document.body.classList.contains('focus'),header:getComputedStyle(document.querySelector('header')).display,
+    legend:getComputedStyle(document.getElementById('legend')).display,ver:getComputedStyle(document.getElementById('ver')).display,
+    fill:Math.abs(document.getElementById('office').getBoundingClientRect().height-innerHeight)<=2,
+    canvas:office.canvas.getBoundingClientRect().bottom<=innerHeight+1,scroll:document.documentElement.scrollHeight<=innerHeight,
+    active:document.activeElement.id,label:document.getElementById('focusExit').getAttribute('aria-label'),
+    onTop:document.elementFromPoint(ex.x+ex.width/2,ex.y+ex.height/2)?.id};
+  });
+  const inFocus={focus:true,header:'none',legend:'none',ver:'none',fill:true,canvas:true,scroll:true,active:'focusExit',label:'Show everything',onTop:'focusExit'};
+  assert.deepEqual(await focusState(),inFocus);
+  await screenshot(page,'office-only');
+  await page.reload();await stable(page);
+  assert.deepEqual(await focusState(),inFocus);
+  await page.setViewportSize({width:320,height:200});await page.waitForTimeout(300);
+  const tiny=await focusState();assert.equal(tiny.fill&&tiny.canvas&&tiny.scroll&&tiny.onTop==='focusExit',true,JSON.stringify(tiny));
+  await screenshot(page,'office-only-tiny');
+  // The 2D office labels switch to screen space when the room is scaled down.
+  await page.evaluate(()=>{state.quality='mid';store.set('quality','mid');makeOffice()});
+  await page.waitForFunction(()=>officeKind==='mid'&&office.framesShown>4);
+  const tiny2d=await page.evaluate(()=>{office.frame(performance.now());return {zoom:office.cam.zoom<1,canvas:office.canvas.getBoundingClientRect().bottom<=innerHeight+1,scroll:document.documentElement.scrollHeight<=innerHeight}});
+  assert.deepEqual(tiny2d,{zoom:true,canvas:true,scroll:true});
+  await screenshot(page,'office-only-tiny-2d');
+  await page.setViewportSize({width:1280,height:960});await page.waitForTimeout(200);
+  check('office only fills the window down to 320x200, persists across reload, and its exit button sits above the canvas');
+  await page.evaluate(()=>officeOpts.onHover(state.data.sessions[0],{x:200,y:200},true));
+  assert.equal(await page.evaluate(()=>tipPinned),true);
+  await page.keyboard.press('Escape');
+  assert.deepEqual(await page.evaluate(()=>({tip:tipKey,focus:document.body.classList.contains('focus')})),{tip:null,focus:true});
+  await page.keyboard.press('Escape');
+  assert.deepEqual(await page.evaluate(()=>({focus:document.body.classList.contains('focus'),active:document.activeElement.id,header:getComputedStyle(document.querySelector('header')).display!=='none'})),{focus:false,active:'focusBtn',header:true});
+  check('Escape closes a pinned tooltip first, then leaves office only and returns focus to its button');
+  await page.click('#focusBtn');
+  await page.evaluate(()=>onData({now:Date.now(),sessions:[]}));
+  assert.deepEqual(await page.evaluate(()=>({wrap:document.getElementById('officeWrap').style.display,empty:!document.getElementById('officeEmpty').hidden,exit:document.getElementById('focusExit').getBoundingClientRect().width>0})),{wrap:'',empty:true,exit:true});
+  await page.click('#focusExit');
+  assert.equal(await page.evaluate(()=>document.getElementById('officeWrap').style.display),'none');
+  // The toolbar is hidden in office only, so switch views the way a stored preference would.
+  await page.click('#focusBtn');await page.evaluate(()=>{state.view='list';syncControls();render()});
+  assert.equal(await page.evaluate(()=>document.body.classList.contains('focus')||!document.getElementById('focusBtn').hidden),false);
+  await page.evaluate(()=>{state.view='office';state.focus=false;store.set('focus',false);store.set('view','office');syncControls()});
+  await page.evaluate(s=>onData({now:Date.now(),sessions:s}),sessions);
+  check('office only keeps an empty office and its exit button on screen, and does not apply to the list');
   await openSettings(page);
   await page.locator('#settingsMenu > summary').press('Escape');
   assert.equal(await page.locator('#settingsPanel').isVisible(),false);

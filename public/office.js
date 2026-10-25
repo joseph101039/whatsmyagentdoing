@@ -9,6 +9,7 @@
   const WALL_H = 2.4;
   const WORKING = new Set(['thinking', 'tool', 'typing', 'waiting', 'error']);
   const MAX_WANDERERS = 7;
+  const FRAME_MS = 1000 / 30; // animation frame budget
   const SPEED = 2.1; // tiles / second
 
   const SKIN = ['#f3cfb0', '#e5b38f', '#c98d66', '#9a6646', '#6e4630', '#f7dcc7'];
@@ -187,13 +188,11 @@
   // ---------------------------------------------------------------- office
 
   class Office {
-    constructor(root, { onHover, label, onFrame, showAgent = true, compact = false } = {}) {
+    constructor(root, { onHover, label, showAgent = true } = {}) {
       this.root = root;
       this.onHover = onHover || (() => {});
       this.label = label || ((s) => s.project || s.agent);
-      this.onFrame = onFrame;
       this.showAgent = showAgent;
-      this.compact = compact;
       this.offDutyLabel = 'not shown';
       this.delegatingLabel = null; // (n) => text for a parent waiting on n subagents
       this.canvas = document.createElement('canvas');
@@ -227,7 +226,16 @@
       // false if the renderer gave up (3D load failure).
       this.ready = new Promise((ok) => (this.markReady = ok));
       this.framesShown = 0;
-      const loop = (t) => { if (this.dead) return; this.frame(t); this.raf = requestAnimationFrame(loop); };
+      // rAF fires at the display rate (60-120Hz); drawing cost is roughly
+      // fixed per frame, so cap it at 30fps and skip it while the page is hidden.
+      this.drawnAt = -Infinity;
+      const loop = (t) => {
+        if (this.dead) return;
+        this.raf = requestAnimationFrame(loop);
+        if (document.hidden || t - this.drawnAt < FRAME_MS - 2) return;
+        this.drawnAt = t;
+        this.frame(t);
+      };
       this.raf = requestAnimationFrame(loop);
     }
 
@@ -597,15 +605,20 @@
       this.goTo(p, choice);
     }
 
-    setVisible(v) { this.visible = v; if (v) this.resize(); }
+    // Size changes while shown come from the ResizeObserver; resizing here on
+    // every render would clear the canvas and reallocate WebGL buffers.
+    setVisible(v) { const was = this.visible; this.visible = v; if (v && !was) this.resize(); }
 
     // ------------------------------------------------------------ camera / input
 
     resize() {
       const r = this.root.getBoundingClientRect();
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      this.cw = Math.max(this.compact ? 1 : 200, r.width);
-      this.ch = Math.max(this.compact ? 1 : 240, r.height);
+      const cw = Math.max(160, r.width), ch = Math.max(120, r.height);
+      // A new size snaps the camera instead of easing over many frames.
+      if (cw !== this.cw || ch !== this.ch) this.cam = null;
+      this.cw = cw;
+      this.ch = ch;
       this.canvas.width = Math.round(this.cw * dpr);
       this.canvas.height = Math.round(this.ch * dpr);
       this.canvas.style.width = this.cw + 'px';
@@ -1524,9 +1537,6 @@
       this.step(dt);
       if (this.draw() !== false) {
         if (!this.first && ++this.framesShown === 3) this.markReady(true);
-        // Capture immediately: a WebGL drawing buffer may be cleared after
-        // this task. The overlay and the 3D canvas must be copied together.
-        if (this.onFrame) this.onFrame(this);
       }
     }
 
@@ -1582,8 +1592,8 @@
         else it.draw();
       }
       this.pingPongBall();
-      if (this.compact) {
-        // Keep labels readable when the room is scaled down for PiP.
+      if (this.cam.zoom < 1) {
+        // Keep labels readable when the room is scaled down for a small window.
         c.save();
         c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
         for (const [p, at] of heads) this.bubble(p, {

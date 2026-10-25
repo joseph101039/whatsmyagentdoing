@@ -7,6 +7,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const CHARACTERS = ['male-a', 'male-b', 'male-c', 'male-d', 'male-e', 'male-f',
   'female-a', 'female-b', 'female-c', 'female-d', 'female-e', 'female-f'];
@@ -68,7 +69,6 @@ export class Office3D extends window.Office {
     PENDING_SCENE = (opts && opts.scene) || null;
     super(root, opts);
     this.sceneDef = PENDING_SCENE;
-    this.compact = !!opts?.compact;
     this.canvas.classList.add('office-overlay');
     try {
       this.gl = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -78,7 +78,9 @@ export class Office3D extends window.Office {
       this.markReady(false);
       return;
     }
-    this.gl.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    // 1.5x is where extra WebGL pixels stop being visible in a moving scene
+    // but keep costing GPU time; the overlay canvas stays at 2x for crisp text.
+    this.gl.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
     this.gl.shadowMap.enabled = true;
     this.gl.shadowMap.type = THREE.PCFSoftShadowMap;
     this.gl.outputColorSpace = THREE.SRGBColorSpace;
@@ -122,6 +124,7 @@ export class Office3D extends window.Office {
 
   destroy() {
     super.destroy();
+    this.disposeBatches();
     if (!this.gl) return;
     this.controls.dispose();
     this.gl.dispose();
@@ -943,7 +946,7 @@ export class Office3D extends window.Office {
       const dist = 40;
       this.camera.position.set(center.x + dist * 0.62, center.y + dist * 0.58, center.z + dist * 0.62);
       this.controls.target.copy(center);
-      this.camera.zoom = this.compact ? 1 : 1.25;
+      this.camera.zoom = this.small ? 1 : 1.25;
       this.fitted = true;
     }
     this.camera.lookAt(this.controls.target);
@@ -957,8 +960,8 @@ export class Office3D extends window.Office {
     }
     const aspect = this.cw / this.ch;
     let w = (maxX - minX) * 1.06, h = (maxY - minY) * 1.1;
-    // Leave room for screen-space badges and bubbles in a small PiP window.
-    if (this.compact) h *= this.ch / Math.max(80, this.ch - 48);
+    // Leave room for screen-space badges and bubbles in a small window.
+    if (this.small) h *= this.ch / Math.max(80, this.ch - 48);
     if (w / h > aspect) h = w / aspect; else w = h * aspect;
     const cxv = (minX + maxX) / 2, cyv = (minY + maxY) / 2;
     Object.assign(this.camera, { left: cxv - w / 2, right: cxv + w / 2, top: cyv + h / 2, bottom: cyv - h / 2 });
@@ -972,13 +975,19 @@ export class Office3D extends window.Office {
     sc.updateProjectionMatrix();
   }
 
+  get small() { return this.ch < 320; }
+
   resize() {
+    const wasSmall = this.ch === undefined ? undefined : this.small;
     super.resize();
     if (!this.gl) return;
     this.gl.setSize(this.cw, this.ch, false);
     this.gl.domElement.style.width = this.cw + 'px';
     this.gl.domElement.style.height = this.ch + 'px';
-    if (this.room) this.fitCamera3D(false);
+    if (!this.room) return;
+    // Crossing the small-window threshold changes the default zoom too.
+    if (this.fitted && wasSmall !== undefined && wasSmall !== this.small) this.camera.zoom = this.small ? 1 : 1.25;
+    this.fitCamera3D(false);
   }
 
   // ------------------------------------------------------------ actors
@@ -1059,7 +1068,7 @@ export class Office3D extends window.Office {
       if (want != null) {
         let d = want - a.yaw;
         d = Math.atan2(Math.sin(d), Math.cos(d));
-        a.yaw += d * Math.min(1, dt * 10);
+        a.yaw += d * (1 - Math.exp(-dt * 10));
       }
       a.last = { x: p.x, y: p.y };
       a.obj.rotation.y = a.yaw;
@@ -1093,6 +1102,76 @@ export class Office3D extends window.Office {
   // Highest surface below `limit` under (x, z). Sampled at the point and
   // four spots around it so a gap between dock planks or sand patches
   // doesn't read as the sea floor. World matrices must be current.
+  // ------------------------------------------------------------ batching
+
+  // Every mesh costs a draw call per frame (two with shadows), and in
+  // WKWebView each call crosses into the GPU process. The room has ~450
+  // meshes that never move, so merge them into one mesh per look-alike
+  // material: ~836 calls become ~200 with the same picture. Anything the
+  // frame loop moves, recolours or reshapes stays a separate mesh.
+  batchStatic() {
+    const room = this.room;
+    const dynamic = new Set([
+      ...this.screens.values(), ...this.blinkers.map((b) => b.m), this.ball, ...(this.rods || []), this.arcadeScreen,
+      this.water, ...(this.bobbers || []).map((b) => b.m), ...(this.flames || []).flatMap((f) => [f.outer, f.inner]),
+      this.planet, this.stars, ...(this.pulsers || []).map((g) => g.m),
+    ].filter(Boolean));
+    const moves = (m) => { for (let o = m; o && o !== room; o = o.parent) if (dynamic.has(o)) return true; return false; };
+    const hex = (c) => (c && c.isColor ? c.getHexString() : '');
+    const tex = (t) => (t ? t.uuid : '');
+    // Plain standard materials group by everything that affects how they
+    // render. Others (physical, scene-pack extras) and materials animated by
+    // reference (the window follows the sky) keep their identity.
+    const look = (m) => m === this.windowMat || m.type !== 'MeshStandardMaterial' ? `id:${m.uuid}` : [
+      m.type, hex(m.color), hex(m.emissive), m.emissiveIntensity, m.roughness, m.metalness, m.opacity,
+      tex(m.map), tex(m.emissiveMap), tex(m.normalMap), tex(m.roughnessMap), tex(m.metalnessMap), tex(m.aoMap), tex(m.alphaMap),
+      m.side, m.shadowSide, m.vertexColors, m.flatShading, m.alphaTest, m.depthWrite, m.depthTest, m.wireframe, m.fog, m.toneMapped,
+    ].join('|');
+    const groups = new Map();
+    room.traverse((m) => {
+      if (!m.isMesh || m.isSkinnedMesh || m.isInstancedMesh || Array.isArray(m.material) || m.material.transparent || moves(m)) return;
+      const g = m.geometry;
+      if (g.groups.length || g.drawRange.start !== 0 || g.drawRange.count !== Infinity) return;
+      if (Object.keys(g.morphAttributes).length || m.matrixWorld.determinant() < 0) return;
+      const attrs = Object.keys(g.attributes).sort().map((k) => k + g.attributes[k].itemSize).join(',');
+      const key = [look(m.material), m.castShadow, m.receiveShadow, attrs].join('#');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(m);
+    });
+    for (const meshes of groups.values()) {
+      if (meshes.length < 2) continue;
+      // Quantised, interleaved GLTF attributes become plain float arrays
+      // so world transforms can be baked in and every part merges alike.
+      const parts = meshes.map((m) => {
+        const src = m.geometry, g = new THREE.BufferGeometry();
+        for (const [name, a] of Object.entries(src.attributes)) {
+          const out = new Float32Array(a.count * a.itemSize);
+          for (let i = 0; i < a.count; i++) for (let c = 0; c < a.itemSize; c++) out[i * a.itemSize + c] = a.getComponent(i, c);
+          g.setAttribute(name, new THREE.BufferAttribute(out, a.itemSize));
+        }
+        g.setIndex(src.index ? Array.from(src.index.array) : [...Array(g.attributes.position.count).keys()]);
+        g.applyMatrix4(m.matrixWorld);
+        return g;
+      });
+      const merged = mergeGeometries(parts);
+      for (const g of parts) g.dispose();
+      if (!merged) continue;
+      const mesh = new THREE.Mesh(merged, meshes[0].material);
+      mesh.castShadow = meshes[0].castShadow;
+      mesh.receiveShadow = meshes[0].receiveShadow;
+      // Source geometries stay: GLTF clones share them with the loaded models.
+      for (const m of meshes) m.removeFromParent();
+      room.add(mesh);
+      this.batches.push(merged);
+    }
+    room.updateMatrixWorld(true);
+  }
+
+  disposeBatches() {
+    for (const g of this.batches || []) g.dispose();
+    this.batches = [];
+  }
+
   surfaceBelow(x, z, limit, from = 1.2) {
     if (!this.room) return 0;
     const ray = new THREE.Raycaster();
@@ -1148,9 +1227,11 @@ export class Office3D extends window.Office {
     if (this.room !== undefined && this.builtPlan === this.plan) {
       // fine
     } else {
+      this.disposeBatches();
       this.build();
       this.builtPlan = this.plan;
       this.room.updateMatrixWorld(true);
+      this.batchStatic();
       this.seats = new Map();
       this.ground = new Map();
       for (const a of this.actors.values()) this.scene.remove(a.obj, a.prop);
