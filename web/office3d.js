@@ -78,9 +78,9 @@ export class Office3D extends window.Office {
       this.markReady(false);
       return;
     }
-    // 1.5x is where extra WebGL pixels stop being visible in a moving scene
-    // but keep costing GPU time; the overlay canvas stays at 2x for crisp text.
-    this.gl.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
+    // Full Retina resolution: below 2x edges look soft, and the cost here is
+    // per frame and per draw call, not per pixel.
+    this.gl.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     this.gl.shadowMap.enabled = true;
     this.gl.shadowMap.type = THREE.PCFSoftShadowMap;
     this.gl.outputColorSpace = THREE.SRGBColorSpace;
