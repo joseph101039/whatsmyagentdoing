@@ -81,7 +81,7 @@ function precheck(row) {
 // Install layouts whose executable isn't simply named after the agent,
 // anchored at the end so only the agent's own file matches.
 const AGENT_PATHS = {
-  claude: [/\/claude\/versions\/[^/]+$/, /\/node_modules\/@anthropic-ai\/claude-code\/cli\.m?js$/],
+  claude: [/\/claude\/versions\/\d+\.\d+\.\d+$/, /\/node_modules\/@anthropic-ai\/claude-code\/cli\.m?js$/],
   codex: [/\/node_modules\/@openai\/codex\/bin\/codex(\.m?js)?$/],
 };
 const NODES = new Set(['node', 'bun']);
