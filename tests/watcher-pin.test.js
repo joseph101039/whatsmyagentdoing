@@ -58,7 +58,23 @@ test('codex pinned found by full walk', () => {
   w.setPinned([{ agent: 'codex', id }, { agent: 'codex', id: 'not-anywhere' }]);
   w.tick();
   assert.ok(ids(w).includes(`codex:${id}`));
-  assert.ok(w.codexMiss.get('not-anywhere') > Date.now());
+  const miss = w.codexMiss.get('not-anywhere');
+  assert.ok(miss.until > Date.now() && miss.delay === 60000);
+  // unpinning forgets the id and its cached path
+  w.setPinned([{ agent: 'codex', id }]);
+  assert.ok(!w.codexMiss.has('not-anywhere'));
+});
+
+test('codex full walk runs at most once a minute and backs off', () => {
+  const w = new Watcher({ hours: 24 });
+  w.setPinned([{ agent: 'codex', id: 'ghost' }]);
+  w.findPinnedCodex(1_000_000);
+  const first = w.codexMiss.get('ghost');
+  w.codexMiss.set('ghost', { ...first, until: 0 }); // due again, but the walk was just done
+  w.findPinnedCodex(1_000_000 + 1000);
+  assert.equal(w.codexMiss.get('ghost').delay, 60000);
+  w.findPinnedCodex(1_000_000 + 61000);
+  assert.equal(w.codexMiss.get('ghost').delay, 120000);
 });
 
 test('unpinned old file is evicted', () => {

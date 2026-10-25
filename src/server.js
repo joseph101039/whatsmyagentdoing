@@ -19,7 +19,7 @@ const MOUNTS = { '/assets/': path.join(__dirname, '..', 'assets') };
 const scenes = require('./scenes');
 const updater = require('./update');
 const { mergeSessions, pluginParents, isPresent } = require('./agentdeck');
-const { canClose, closeSession, inspectCached, precheck } = require('./close');
+const { canClose, closeSession, inspectCachedMany, precheck } = require('./close');
 
 function serveFile(res, root, rel) {
   const file = path.normalize(path.join(root, rel));
@@ -39,7 +39,7 @@ const ACTIVE = new Set(['thinking', 'tool', 'typing']);
 // has gone silent for a long time was most likely closed mid-turn.
 // With the AgentDeck feed, `deck` maps keys to live.json rows; sessions it
 // reports as running come from hooks and need no clock.
-function view(s, now, { privacy }, deck) {
+function view(s, now, { privacy }, deck, procs) {
   const quiet = now - (s.lastEventAt || s.mtime || now);
   let status = s.status;
   if (s.alive !== true) {
@@ -71,16 +71,19 @@ function view(s, now, { privacy }, deck) {
   };
   if (deck) {
     const row = deck.get(out.key);
-    out.alive = s.alive === true;
+    // null: an agent the feed doesn't cover (Gemini), presence from the logs
+    out.alive = typeof s.alive === 'boolean' ? s.alive : null;
     out.pid = s.pid ?? null;
     out.spawnedBy = s.spawnedBy || null;
-    out.waitingReason = s.waitingReason || null; // a fixed phrase, kept in privacy mode
-    // ps is only consulted for rows that pass the cheap checks, and cached
-    out.closable = !!row && out.alive && !precheck(row) && canClose(row, inspectCached(row.agentPid, now), now).ok;
+    out.waitingReason = s.waitingReason || null;
+    // procs: one batched, cached ps lookup for the rows that pass the cheap checks
+    out.closable = !!row && out.alive === true && !precheck(row) && canClose(row, procs.get(row.agentPid), now).ok;
   }
   if (privacy) {
     out.prompt = out.reply = out.title = null;
     if (out.activity) out.activity = out.activity.split(/[:\s]/)[0];
+    // Claude's registry reason is free text that can quote a command
+    if (out.waitingReason) out.waitingReason = out.waitingReason.split(/[:\s]/)[0];
   }
   return out;
 }
@@ -94,6 +97,15 @@ function promptLanguage(raw) {
     .slice(0, 60)
     .map((s) => s.prompt);
   return guessFromPrompts(recent);
+}
+
+// The plugin's job files change once per Codex task; a directory scan on
+// every snapshot (each SSE push and API call) buys nothing.
+let parentsAt = 0;
+let parentsMemo = new Map();
+function cachedParents(now) {
+  if (now - parentsAt >= 3000) { parentsMemo = pluginParents(); parentsAt = now; }
+  return parentsMemo;
 }
 
 // opts.feed (--agentdeck): a FeedSource. When it's fresh it decides who is
@@ -110,14 +122,19 @@ function snapshot(watcher, opts) {
       if (watcher.setPinned) {
         watcher.setPinned([...deck.values()].filter((x) => isPresent(x, now)).map((x) => ({ agent: x.provider, id: x.sessionId })));
       }
-      raw = mergeSessions(raw, r.feed, pluginParents(), now);
+      raw = mergeSessions(raw, r.feed, cachedParents(now), now);
       feed = { mode: 'agentdeck' };
     } else {
       if (watcher.setPinned) watcher.setPinned([]);
       feed = { mode: 'logs', reason: r.reason };
     }
   }
-  const sessions = raw.map((s) => view(s, now, opts, deck));
+  let procs = new Map();
+  if (deck) {
+    const pids = [...deck.values()].filter((x) => isPresent(x, now) && !precheck(x)).map((x) => x.agentPid);
+    procs = inspectCachedMany(pids, now);
+  }
+  const sessions = raw.map((s) => view(s, now, opts, deck, procs));
   sessions.sort((a, b) => (b.lastEventAt || 0) - (a.lastEventAt || 0));
   const out = { now, lang: opts.demo ? null : promptLanguage(raw), sessions };
   if (feed) out.feed = feed;
@@ -129,6 +146,8 @@ function createServer(watcher, opts, { onShutdown, onRestart } = {}) {
   let last = '';
 
   const push = (force) => {
+    // Nobody listening: skip the work; a new /events client gets a fresh snapshot.
+    if (!clients.size) { last = ''; return; }
     let body;
     try { body = JSON.stringify(snapshot(watcher, opts)); } catch (e) { console.error('snapshot failed:', e.message); return; }
     // Compare without the timestamp so idle ticks don't spam clients.

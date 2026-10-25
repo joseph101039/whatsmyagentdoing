@@ -68,7 +68,7 @@ function parseArgs(argv) {
     else { console.error(`Unknown option: ${a}\n\n${HELP}`); process.exit(1); }
   }
   if (!Number.isFinite(o.port) || !Number.isFinite(o.hours)) { console.error(HELP); process.exit(1); }
-  if (o.managed === undefined || o.agentdeck === undefined) { console.error(HELP); process.exit(1); }
+  if (o.managed === undefined || o.managed === '' || o.agentdeck === undefined) { console.error(HELP); process.exit(1); }
   if (o.managed) o.open = false;
   if (o.agentdeck) o.feed = new FeedSource(o.agentdeck);
   return o;
@@ -193,8 +193,9 @@ async function main() {
   const watcher = (o.demo ? new DemoWatcher() : new Watcher({ hours: o.hours })).start();
   const server = createServer(watcher, o, {
     onShutdown: () => { watcher.stop(); server.close(); process.exit(0); },
-    // after an update from the page: start the new code on the same port
-    onRestart: () => {
+    // after an update from the page: start the new code on the same port.
+    // Not when managed: the detached copy would escape the app's supervision.
+    onRestart: o.managed ? undefined : () => {
       watcher.stop();
       server.close(() => {
         const args = process.argv.slice(2).filter((a) => a !== '--no-open' && !a.startsWith('--scene'));
@@ -223,6 +224,15 @@ async function main() {
     });
   };
   listen(o.port, o.managed ? 100 : 10);
+
+  // The app stops us on a clean quit; when it is killed or crashes instead,
+  // we get reparented, and must not linger and pile up on later ports.
+  if (o.managed) {
+    const parent = process.ppid;
+    setInterval(() => {
+      if (process.ppid !== parent) { watcher.stop(); server.close(); process.exit(0); }
+    }, 2000).unref();
+  }
 }
 
 main();

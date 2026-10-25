@@ -120,9 +120,37 @@ test('ended log session marked not alive', () => {
 test('subagent of alive parent kept only while active', () => {
   const sub = (status) => log({ id: 'sub1', subagent: true, parentId: 'c1', status });
   const run = (status, parentRow) => mergeSessions([log(), sub(status)], feed([parentRow]), new Map(), NOW).find((s) => s.id === 'sub1');
-  assert.equal(run('tool', row()).alive, true);
+  // undecided rather than true: the clock still retires a crashed subagent
+  assert.equal(run('tool', row()).alive, undefined);
   assert.equal(run('done', row()).alive, false);
   assert.equal(run('tool', row({ running: false })).alive, false);
+});
+
+test('agents without hooks keep log-based presence', () => {
+  const g = { ...newSession('gemini', 'g1', '/g.json'), status: 'thinking', lastEventAt: NOW - 500 };
+  const out = mergeSessions([g], feed([row()]), new Map(), NOW);
+  assert.equal(out.find((s) => s.id === 'g1').alive, undefined);
+});
+
+test('future or non-string feed values are rejected', () => {
+  const dir = tmp();
+  const file = path.join(dir, 'live.json');
+  fs.writeFileSync(file, JSON.stringify(feed([], { generatedAt: iso(NOW + 10 * 60000) })));
+  assert.equal(loadFeed(file, NOW, () => true).reason, 'stale');
+  const out = mergeSessions([], feed([row({ sessionId: 42 }), row({ provider: 'codex', sessionId: 'x1', parentSessionId: { a: 1 } })]), new Map(), NOW);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].spawnedBy, null);
+});
+
+test('a failed read is retried even when mtime is unchanged', () => {
+  const dir = tmp();
+  const file = path.join(dir, 'live.json');
+  fs.writeFileSync(file, JSON.stringify(feed([])));
+  const src = new FeedSource(file, { isAlive: () => true });
+  const orig = fs.readFileSync;
+  fs.readFileSync = () => { throw new Error('EBUSY'); };
+  try { assert.equal(src.read(NOW).ok, false); } finally { fs.readFileSync = orig; }
+  assert.equal(src.read(NOW).ok, true);
 });
 
 // ---- parents

@@ -663,8 +663,10 @@ document.addEventListener('click', async (e) => {
   }
   closing.set(key, { phase: 'sending' });
   render();
-  const r = await fetch(`/api/sessions/close?key=${encodeURIComponent(key)}`, { method: 'POST', headers: { 'x-whatsmyagentdoing': 'close' } })
-    .then((x) => x.json()).catch(() => ({ ok: false }));
+  const r = await fetch(`/api/sessions/close?key=${encodeURIComponent(key)}`, {
+    method: 'POST', headers: { 'x-whatsmyagentdoing': 'close' }, signal: AbortSignal.timeout(5000),
+  }).then((x) => x.json().catch(() => ({ ok: false, reason: `HTTP ${x.status}` })))
+    .catch((e) => ({ ok: false, reason: e.name === 'TimeoutError' ? 'timeout' : null }));
   const done = r.ok ? { phase: 'closed' } : { phase: 'failed', reason: r.reason };
   closing.set(key, done);
   render();

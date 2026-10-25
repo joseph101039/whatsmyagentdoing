@@ -5,7 +5,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { inspectPid, canClose, closeSession } = require('../src/close');
+const { inspectPid, inspectPids, canClose, closeSession, isAgentCommand } = require('../src/close');
 
 const STARTED = 'Sun Oct 25 09:03:02 2026';
 const STARTED_MS = Date.parse(STARTED);
@@ -19,21 +19,43 @@ function row(over = {}) {
 }
 const info = (command, startedAt = STARTED_MS) => ({ alive: true, command, startedAt });
 const noRegistry = { registry: () => undefined };
+const reg = { registry: () => 'c1' };
 const CLAUDE = '/Users/me/.local/share/claude/versions/2.1.308 --resume c1';
 
 test('inspectPid parses ps lstart and the full command', () => {
-  const r = inspectPid(4242, () => `${STARTED}     /Users/me/.local/share/claude/versions/2.1.308 -p hello\n`);
+  const r = inspectPid(4242, () => `4242 ${STARTED}     /Users/me/.local/share/claude/versions/2.1.308 -p hello\n`);
   assert.deepEqual(r, { alive: true, command: '/Users/me/.local/share/claude/versions/2.1.308 -p hello', startedAt: STARTED_MS });
   assert.equal(inspectPid(4242, () => { throw new Error('exit 1'); }), null);
   assert.equal(inspectPid(4242, () => ''), null);
-  assert.equal(inspectPid(1, () => `${STARTED} launchd`), null);
+  assert.equal(inspectPid(1, () => `1 ${STARTED} launchd`), null);
   // single-digit days are space padded
-  assert.equal(inspectPid(7, () => 'Mon Oct  5 01:02:03 2026 codex exec hi').startedAt, Date.parse('Mon Oct 5 01:02:03 2026'));
+  assert.equal(inspectPid(7, () => '   7 Mon Oct  5 01:02:03 2026 codex exec hi').startedAt, Date.parse('Mon Oct 5 01:02:03 2026'));
+});
+
+test('inspectPids looks up many pids in one call and skips the gone', () => {
+  let calls = 0;
+  const m = inspectPids([10, 11, 12], (pids) => { calls++; assert.deepEqual(pids, [10, 11, 12]); return `10 ${STARTED} claude\n12 ${STARTED} codex exec x\n`; });
+  assert.equal(calls, 1);
+  assert.deepEqual([...m.keys()], [10, 12]);
+});
+
+test('inspectPid reads a real process', () => {
+  const r = inspectPid(process.pid);
+  assert.ok(r && Math.abs(r.startedAt - (Date.now() - process.uptime() * 1000)) < 5000);
+});
+
+test('isAgentCommand wants the agent executable itself', () => {
+  for (const c of ['claude', 'claude --settings {}', '/Users/me/.local/share/claude/versions/2.1.308 -p x',
+    'node /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js']) assert.ok(isAgentCommand(c, 'claude'), c);
+  for (const c of ['/Applications/Claude.app/Contents/MacOS/Claude', 'vim claude-notes.md', '/Users/claudette/bin/foo',
+    'grep claude', 'node /x/claude-notes/server.js']) assert.ok(!isAgentCommand(c, 'claude'), c);
+  assert.ok(isAgentCommand('/Users/me/.codex/packages/standalone/releases/0.163.0/bin/codex exec hi', 'codex'));
+  assert.ok(!isAgentCommand('/Users/me/.codex/packages/standalone/releases/0.163.0/bin/codex-code-mode-host', 'codex'));
+  assert.ok(!isAgentCommand('grep codex', 'codex'));
 });
 
 test('canClose accepts versioned claude binary', () => {
-  assert.deepEqual(canClose(row(), info(CLAUDE), NOW, noRegistry), { ok: true });
-  assert.deepEqual(canClose(row(), info(CLAUDE), NOW, { registry: () => 'c1' }), { ok: true });
+  assert.deepEqual(canClose(row(), info(CLAUDE), NOW, reg), { ok: true });
 });
 
 test('canClose accepts codex exec', () => {
@@ -43,9 +65,9 @@ test('canClose accepts codex exec', () => {
 });
 
 test('canClose rejects recycled pid', () => {
-  assert.equal(canClose(row(), info(CLAUDE, STARTED_MS + 5000), NOW, noRegistry).reason, 'pid-reused');
-  assert.equal(canClose(row(), info(CLAUDE, STARTED_MS - 2000), NOW, noRegistry).reason, 'pid-reused');
-  assert.equal(canClose(row(), null, NOW, noRegistry).reason, 'gone');
+  assert.equal(canClose(row(), info(CLAUDE, STARTED_MS + 5000), NOW, reg).reason, 'pid-reused');
+  assert.equal(canClose(row(), info(CLAUDE, STARTED_MS - 2000), NOW, reg).reason, 'pid-reused');
+  assert.equal(canClose(row(), null, NOW, reg).reason, 'gone');
 });
 
 test('canClose rejects app-server', () => {
@@ -54,9 +76,9 @@ test('canClose rejects app-server', () => {
 });
 
 test('canClose rejects non-agent', () => {
-  assert.equal(canClose(row(), info('/usr/bin/python3 server.py'), NOW, noRegistry).reason, 'not-agent');
+  assert.equal(canClose(row(), info('/usr/bin/python3 server.py'), NOW, reg).reason, 'not-agent');
   // a shell whose arguments merely mention ~/.claude is not Claude
-  assert.equal(canClose(row(), info('/bin/zsh -c source /Users/me/.claude/shell-snapshots/x.sh && codex'), NOW, noRegistry).reason, 'not-agent');
+  assert.equal(canClose(row(), info('/bin/zsh -c source /Users/me/.claude/shell-snapshots/x.sh && codex'), NOW, reg).reason, 'not-agent');
   // a codex row whose pid now runs claude
   assert.equal(canClose(row({ provider: 'codex' }), info(CLAUDE), NOW, noRegistry).reason, 'not-agent');
 });
@@ -64,6 +86,8 @@ test('canClose rejects non-agent', () => {
 test('canClose rejects registry session mismatch', () => {
   assert.equal(canClose(row(), info(CLAUDE), NOW, { registry: () => 'someone-else' }).reason, 'session-mismatch');
   assert.equal(canClose(row(), info(CLAUDE), NOW, { registry: () => null }).reason, 'session-mismatch');
+  // no registry file: Claude always writes one, so fail closed
+  assert.equal(canClose(row(), info(CLAUDE), NOW, noRegistry).reason, 'session-mismatch');
 });
 
 test('canClose rejects rows without identity or not running', () => {

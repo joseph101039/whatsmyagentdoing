@@ -135,18 +135,23 @@ class Watcher extends EventEmitter {
     // whatever their age, so a session idle for days still shows up.
     this.pinned = new Set();     // "agent:id"
     this.pinnedExtra = new Map(); // "codex:id" -> candidate outside the day window
-    this.codexPaths = new Map();  // codex id -> rollout path, from full walks
-    this.codexMiss = new Map();   // codex id -> retry-after time
+    this.codexPaths = new Map();  // pinned codex id -> rollout path, from full walks
+    this.codexMiss = new Map();   // codex id -> { until, delay } before the next walk for it
+    this.lastWalk = 0;
   }
 
   setPinned(list) {
     this.pinned = new Set((list || []).map((p) => `${p.agent}:${p.id}`));
     for (const k of [...this.pinnedExtra.keys()]) if (!this.pinned.has(k)) this.pinnedExtra.delete(k);
+    for (const m of [this.codexPaths, this.codexMiss]) {
+      for (const id of [...m.keys()]) if (!this.pinned.has(`codex:${id}`)) m.delete(id);
+    }
   }
 
   // Codex rollouts live in date folders and only recent days are walked; a
-  // pinned one from an older day needs one walk of the whole tree (cached,
-  // and an id that isn't there is not looked for again for a minute).
+  // pinned one from an older day needs one walk of the whole tree. The walk
+  // is synchronous, so: at most one a minute, and an id that isn't there
+  // backs off 1, 2, 4… up to 30 minutes (its rollout may never exist).
   findPinnedCodex(now) {
     const inWindow = new Set(this.candidates.filter((c) => c.agent === 'codex').map((c) => c.id));
     const missing = [];
@@ -157,15 +162,19 @@ class Watcher extends EventEmitter {
       if (this.pinnedExtra.has(k)) continue;
       const known = this.codexPaths.get(id);
       if (known && statSafe(known)) { this.pinnedExtra.set(k, { agent: 'codex', file: known, id }); continue; }
-      if ((this.codexMiss.get(id) || 0) > now) continue;
+      const miss = this.codexMiss.get(id);
+      if (miss && miss.until > now) continue;
       missing.push(id);
     }
-    if (!missing.length) return;
-    for (const c of codexFiles(0)) this.codexPaths.set(c.id, c.file);
+    if (!missing.length || now - this.lastWalk < 60000) return;
+    this.lastWalk = now;
+    const want = new Set(missing);
+    for (const c of codexFiles(0)) if (want.has(c.id)) this.codexPaths.set(c.id, c.file);
     for (const id of missing) {
       const file = this.codexPaths.get(id);
-      if (file) this.pinnedExtra.set(`codex:${id}`, { agent: 'codex', file, id });
-      else this.codexMiss.set(id, now + 60000);
+      if (file) { this.pinnedExtra.set(`codex:${id}`, { agent: 'codex', file, id }); this.codexMiss.delete(id); continue; }
+      const delay = Math.min(((this.codexMiss.get(id) || {}).delay || 30000) * 2, 30 * 60000);
+      this.codexMiss.set(id, { until: now + delay, delay });
     }
   }
 

@@ -13,6 +13,7 @@ const FRESH_MS = 45000;          // AgentDeck rewrites the file at least every 1
 const SHARED_DONE_MS = 5 * 60000; // plugin app-server never ends its sessions
 const CARRY_SLACK_MS = 2000;
 const LOG_ACTIVE = new Set(['thinking', 'tool', 'typing', 'waiting']);
+const FEED_AGENTS = new Set(['claude', 'codex']); // the agents AgentDeck has hooks for
 
 function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
@@ -29,7 +30,8 @@ function parseFeed(text) {
 // AgentDeck leaves a perfectly valid file behind that never changes again.
 function checkFeed(feed, now, isAlive = pidAlive) {
   const at = Date.parse(feed.generatedAt);
-  if (!Number.isFinite(at) || now - at > FRESH_MS) return { ok: false, reason: 'stale' };
+  // a timestamp from the future would otherwise stay "fresh" until the clock caught up
+  if (!Number.isFinite(at) || Math.abs(now - at) > FRESH_MS) return { ok: false, reason: 'stale' };
   if (!Number.isInteger(feed.appPid) || feed.appPid <= 1 || !isAlive(feed.appPid)) return { ok: false, reason: 'app-dead' };
   return { ok: true, feed };
 }
@@ -56,8 +58,12 @@ class FeedSource {
     try { st = fs.statSync(this.file); } catch {}
     if (!st) { this.mtime = -1; return { ok: false, reason: 'missing' }; }
     if (force || st.mtimeMs !== this.mtime) {
-      this.mtime = st.mtimeMs;
-      try { this.parsed = parseFeed(fs.readFileSync(this.file, 'utf8')); } catch { this.parsed = { ok: false, reason: 'missing' }; }
+      // mtime is remembered only after a successful read, so a transient
+      // failure (file mid-rename) is retried on the next call
+      try {
+        this.parsed = parseFeed(fs.readFileSync(this.file, 'utf8'));
+        this.mtime = st.mtimeMs;
+      } catch { this.parsed = { ok: false, reason: 'missing' }; this.mtime = -1; }
     }
     return this.parsed.ok ? checkFeed(this.parsed.feed, now, this.isAlive) : this.parsed;
   }
@@ -129,7 +135,7 @@ function mergeSessions(logSessions, feed, parents = new Map(), now = Date.now())
   const logs = new Map(logSessions.map((s) => [`${s.agent}:${s.id}`, s]));
   const out = new Map();
   for (const row of feed.sessions || []) {
-    if (!row || (row.provider !== 'claude' && row.provider !== 'codex') || !row.sessionId) continue;
+    if (!row || !FEED_AGENTS.has(row.provider) || typeof row.sessionId !== 'string' || !row.sessionId) continue;
     const key = `${row.provider}:${row.sessionId}`;
     const log = logs.get(key);
     let s;
@@ -152,19 +158,23 @@ function mergeSessions(logSessions, feed, parents = new Map(), now = Date.now())
     s.waitingReason = row.waitingReason || null;
     s.spawnedBy = null;
     if (row.provider === 'codex') {
-      const parent = parents.get(row.sessionId) || row.parentSessionId;
+      const parent = parents.get(row.sessionId) || (typeof row.parentSessionId === 'string' ? row.parentSessionId : null);
       if (parent) { s.parentId = parent; s.subagent = true; s.spawnedBy = 'claude'; }
     }
     out.set(key, s);
   }
   for (const [key, log] of logs) {
     if (out.has(key)) continue;
+    // Agents without AgentDeck hooks (Gemini) keep the log-based presence.
+    if (!FEED_AGENTS.has(log.agent)) { out.set(key, { ...log }); continue; }
     const s = { ...log, alive: false };
     // Claude's own subagents have no hook session; they count while their
-    // parent is present and they are visibly busy.
+    // parent is present and they are visibly busy. Presence stays undecided
+    // (not true) so the clock-based decay still retires one that crashed
+    // mid-tool and will never log again.
     if (log.subagent && log.parentId && LOG_ACTIVE.has(log.status)) {
       const parent = out.get(`${log.agent}:${log.parentId}`);
-      if (parent && parent.alive) s.alive = true;
+      if (parent && parent.alive) delete s.alive;
     }
     out.set(key, s);
   }
