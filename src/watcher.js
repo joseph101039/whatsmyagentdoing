@@ -131,6 +131,42 @@ class Watcher extends EventEmitter {
     this.codexIndexMtime = 0;
     this.lastScan = 0;
     this.candidates = [];
+    // Sessions another source (AgentDeck) knows are still running: tracked
+    // whatever their age, so a session idle for days still shows up.
+    this.pinned = new Set();     // "agent:id"
+    this.pinnedExtra = new Map(); // "codex:id" -> candidate outside the day window
+    this.codexPaths = new Map();  // codex id -> rollout path, from full walks
+    this.codexMiss = new Map();   // codex id -> retry-after time
+  }
+
+  setPinned(list) {
+    this.pinned = new Set((list || []).map((p) => `${p.agent}:${p.id}`));
+    for (const k of [...this.pinnedExtra.keys()]) if (!this.pinned.has(k)) this.pinnedExtra.delete(k);
+  }
+
+  // Codex rollouts live in date folders and only recent days are walked; a
+  // pinned one from an older day needs one walk of the whole tree (cached,
+  // and an id that isn't there is not looked for again for a minute).
+  findPinnedCodex(now) {
+    const inWindow = new Set(this.candidates.filter((c) => c.agent === 'codex').map((c) => c.id));
+    const missing = [];
+    for (const k of this.pinned) {
+      if (!k.startsWith('codex:')) continue;
+      const id = k.slice(6);
+      if (inWindow.has(id)) { this.pinnedExtra.delete(k); continue; }
+      if (this.pinnedExtra.has(k)) continue;
+      const known = this.codexPaths.get(id);
+      if (known && statSafe(known)) { this.pinnedExtra.set(k, { agent: 'codex', file: known, id }); continue; }
+      if ((this.codexMiss.get(id) || 0) > now) continue;
+      missing.push(id);
+    }
+    if (!missing.length) return;
+    for (const c of codexFiles(0)) this.codexPaths.set(c.id, c.file);
+    for (const id of missing) {
+      const file = this.codexPaths.get(id);
+      if (file) this.pinnedExtra.set(`codex:${id}`, { agent: 'codex', file, id });
+      else this.codexMiss.set(id, now + 60000);
+    }
   }
 
   start() {
@@ -186,13 +222,14 @@ class Watcher extends EventEmitter {
       this.lastScan = now;
       this.candidates = [...claudeFiles(), ...codexFiles(since), ...geminiFiles()];
     }
+    if (this.pinned.size) this.findPinnedCodex(now);
 
-    for (const c of this.candidates) {
+    for (const c of [...this.candidates, ...this.pinnedExtra.values()]) {
       // A log we can't read (permissions, deleted mid-read…) is skipped and
       // retried a minute later; it must never take the server down.
       if ((this.failed.get(c.file) || 0) > now) continue;
       try {
-        if (this.track(c, since)) changed = true;
+        if (this.track(c, this.pinned.has(`${c.agent}:${c.id}`) ? -Infinity : since)) changed = true;
       } catch {
         this.failed.set(c.file, now + 60000);
         this.trackers.delete(c.file);
@@ -200,6 +237,7 @@ class Watcher extends EventEmitter {
     }
 
     for (const [file, t] of this.trackers) {
+      if (this.pinned.has(`${t.session.agent}:${t.session.id}`)) continue;
       if ((t.session.lastEventAt || t.session.mtime || 0) < since) { this.trackers.delete(file); changed = true; }
     }
 
