@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>What's my agent doing</title>
+<title>What are my agents doing</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👀</text></svg>">
 <style>
   :root {
@@ -15,7 +15,7 @@
     --line: #e4e3dd;
     --thinking: #7c5cdb;
     --tool: #2f7dd1;
-    --typing: #1f9d6b;
+    --typing: #e0569b;
     --waiting: #d98a0b;
     --done: #5b8a4a;
     --error: #d1453b;
@@ -35,7 +35,7 @@
       --line: #2e2d2a;
       --thinking: #a48bf0;
       --tool: #5ea4ee;
-      --typing: #3fc48f;
+      --typing: #f07ab3;
       --waiting: #f0a93a;
       --done: #86b872;
       --error: #f0675d;
@@ -205,6 +205,12 @@
   .ver button { border: 1px solid var(--tool); background: color-mix(in srgb, var(--tool) 14%, var(--panel)); color: var(--ink); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 12px; cursor: pointer; }
   .ver button:disabled { opacity: .6; cursor: default; }
   .ver code { background: var(--panel); border: 1px solid var(--line); padding: 2px 6px; border-radius: 6px; }
+  .guide { max-width: 760px; }
+  .guide table { border-collapse: collapse; width: 100%; }
+  .guide td { padding: 6px 10px 6px 0; vertical-align: top; border-bottom: 1px solid var(--line); }
+  .guide td:first-child { white-space: nowrap; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .guide ul { margin: 0; padding-left: 18px; }
+  .guide li { margin: 4px 0; }
   .empty { text-align: center; color: var(--muted); padding: 60px 16px; border: 1px dashed var(--line); border-radius: 12px; }
   .empty code { background: var(--panel); padding: 2px 6px; border-radius: 4px; }
   .conn { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: var(--error); color: #fff; padding: 6px 14px; border-radius: 999px; font-size: 12.5px; display: none; }
@@ -238,6 +244,7 @@
       <div class="seg" id="viewSeg">
         <button data-v="office" data-t="office"></button>
         <button data-v="list" data-t="list"></button>
+        <button data-v="guide" data-t="guide"></button>
       </div>
       <div class="seg" id="qualSeg">
         <button data-v="mid" data-t="qMid"></button>
@@ -324,7 +331,7 @@ function applyLang(code) {
     .map((k) => `<span data-s="${k}"><span class="dot" style="color:var(--s)"></span>${L[k]}</span>`).join('');
   const sel = document.getElementById('langSel');
   if (sel) sel.options[0].textContent = `🌐 ${L.auto}`;
-  if (typeof office !== 'undefined' && office) office.offDutyLabel = L.wentHome;
+  if (typeof office !== 'undefined' && office) office.offDutyLabel = L.notShown;
   if (typeof syncControls === 'function') syncControls();
   if (typeof renderSceneSel === 'function') renderSceneSel();
   if (typeof renderVersion === 'function') renderVersion();
@@ -341,7 +348,7 @@ const PREF_DEFAULTS = { view: 'office', quality: 'mid', scene: 'office', agent: 
 function validPreference(k, v) {
   if (!Object.hasOwn(PREF_DEFAULTS, k)) return false;
   if (typeof PREF_DEFAULTS[k] === 'boolean') return typeof v === 'boolean';
-  if (k === 'view') return ['office', 'list'].includes(v);
+  if (k === 'view') return ['office', 'list', 'guide'].includes(v);
   if (k === 'quality') return ['mid', 'high'].includes(v);
   if (k === 'agent') return ['all', ...Object.keys(OFFICE_AGENT_BADGES)].includes(v);
   if (k === 'lang') return v === 'auto' || Object.hasOwn(I18N, v);
@@ -495,9 +502,11 @@ function render() {
   if (feedReason) feedDown.textContent = L.feedDown(feedReason);
 
   const count = (f) => present.filter((s) => f(s.status)).length;
-  document.getElementById('summary').innerHTML = GROUPS.slice(0, 3).map((g) => {
+  // Session totals per group; the four groups are disjoint and cover every status.
+  const CHIP_COLOR = { needsYou: 'var(--waiting)', working: 'var(--tool)', finished: 'var(--done)', idle: 'var(--idle)' };
+  document.getElementById('summary').innerHTML = GROUPS.map((g) => {
     const n = count(g.match);
-    const color = g.key === 'needsYou' ? 'var(--waiting)' : g.key === 'working' ? 'var(--tool)' : 'var(--done)';
+    const color = CHIP_COLOR[g.key];
     return `<span class="chip"><span class="dot" style="color:${color}"></span>${L[g.key]} <b>${n}</b></span>`;
   }).join('');
 
@@ -518,7 +527,14 @@ function render() {
     office.setVisible(officeMode && !poppedOut);
     office.update(officeList);
   }
-  document.getElementById('idleToggle').style.display = officeMode ? 'none' : '';
+  document.getElementById('idleToggle').style.display = state.view === 'list' ? '' : 'none';
+  if (state.view === 'guide') {
+    // Static text: rebuild only when switching to it or changing language,
+    // not on every one-second render.
+    if (main.dataset.guide !== langCode) { main.innerHTML = guideHtml(); main.dataset.guide = langCode; }
+    return;
+  }
+  delete main.dataset.guide;
   if (poppedOut) {
     document.getElementById('officeWrap').style.display = 'none';
     main.innerHTML = `<div class="empty">${esc(L.pipOn)}</div>`;
@@ -543,6 +559,20 @@ function render() {
     if (!items.length) return '';
     return `<section><h2>${L[g.key]} <span class="n">${items.length}</span></h2><div class="grid">${items.map((s) => card(s, now)).join('')}</div></section>`;
   }).join('') + endedSection(ended, now);
+}
+
+function guideHtml() {
+  const G = I18N_GUIDE[langCode] || I18N_GUIDE.en;
+  const ul = (items) => `<ul>${items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`;
+  const rows = ['thinking', 'tool', 'typing', 'waiting', 'error', 'done', 'interrupted', 'idle'].map((k) =>
+    `<tr data-s="${k}"><td><span class="dot" style="color:var(--s)"></span>${esc(L[k])}</td><td>${esc(G.status[k])}</td></tr>`).join('');
+  return `<article class="guide">
+    <section><h2>${esc(G.statusH)}</h2><table>${rows}</table></section>
+    <section><h2>${esc(G.doneIdleH)}</h2>${ul(G.doneIdle)}</section>
+    <section><h2>${esc(G.countsH)}</h2>${ul(G.counts)}</section>
+    <section><h2>${esc(G.peopleH)}</h2>${ul(G.people)}</section>
+    <section><h2>${esc(G.actionsH)}</h2>${ul(G.actions)}</section>
+  </article>`;
 }
 
 // Collapsed by default; cards are only built while it is open.
@@ -698,11 +728,15 @@ function refreshTip() {
   tip.innerHTML = card(s, Date.now() - state.skew);
   placeTip();
 }
-function hideTip() { tipKey = null; tipPinned = false; tip.style.display = 'none'; tip.classList.remove('pinned'); }
+function hideTip() {
+  tipKey = null; tipPinned = false; tip.style.display = 'none'; tip.classList.remove('pinned');
+  if (office) office.holdKey = null;
+}
 const officeOpts = {
   compact: PIP,
   onFrame: (renderer) => popout?.drawPreview(renderer),
-  label: (s) => s.project || AGENT_NAME[s.agent] || s.agent,
+  // Session name (rename / summary) first; many sessions share one folder.
+  label: (s) => s.title || s.project || AGENT_NAME[s.agent] || s.agent,
   onHover(s, at, click) {
     if (click) {
       if (!s) return hideTip();
@@ -710,6 +744,8 @@ const officeOpts = {
     } else if (tipPinned) return;
     if (!s) { if (!tipPinned) hideTip(); return; }
     tipKey = s.key; tipAt = at;
+    // A pinned person stays put while you read their details.
+    if (office) office.holdKey = tipPinned ? tipKey : null;
     tip.style.display = 'block';
     refreshTip();
   },
@@ -753,7 +789,7 @@ async function makeOffice() {
     if (high) { state.quality = 'mid'; store.set('quality', 'mid'); officeKind = 'mid'; syncControls(); }
   }
   office = mine;
-  office.offDutyLabel = L.wentHome;
+  office.offDutyLabel = L.notShown;
   render();
   const ok = await mine.ready;
   if (office !== mine) return;

@@ -17,7 +17,7 @@
       update: 'Update to', updating: 'Updating…', updateFailed: "Couldn't update", updated: 'Updated — reloading…', gitPull: 'Update with git pull',
       dl: 'download', installing: 'Downloading the scene…', installFailed: "Couldn't download the scene.",
       langName: 'English', html: 'en',
-      title: "What's my agent doing", office: 'Office', list: 'List', wentHome: 'went home', qMid: '2D', qHigh: '3D',
+      title: 'What are my agents doing', office: 'Office', list: 'List', notShown: 'not shown', guide: 'Guide', qMid: '2D', qHigh: '3D',
       loading3d: 'Loading 3D office…', loading2d: 'Setting up the office…', failed3d: "Couldn't load the 3D office — showing Medium instead.",
       all: 'All', subagents: 'Subagents', showIdle: 'Idle', notify: 'Notify when done', notifyOn: 'Notifications on', disconnected: 'Disconnected — retrying…',
       needsYou: 'Needs you', working: 'Working', finished: 'Finished', idle: 'Idle',
@@ -42,7 +42,7 @@
       update: '更新到', updating: '正在更新…', updateFailed: '更新失敗', updated: '更新完成，重新載入中…', gitPull: '用 git pull 更新',
       dl: '下載', installing: '正在下載場景…', installFailed: '場景下載失敗。',
       langName: '繁體中文', html: 'zh-Hant',
-      title: '我的 Agent 在幹嘛', office: '辦公室', list: '列表', wentHome: '已下班', qMid: '2D', qHigh: '3D',
+      title: '我的 Agent 在幹嘛', office: '辦公室', list: '列表', notShown: '未顯示', guide: '說明', qMid: '2D', qHigh: '3D',
       loading3d: '正在載入 3D 辦公室…', loading2d: '正在佈置辦公室…', failed3d: '3D 辦公室載入失敗，先用中畫質顯示。',
       all: '全部', subagents: '子 agent', showIdle: '閒置', notify: '完成時通知我', notifyOn: '通知已開', disconnected: '連線中斷，重試中…',
       needsYou: '需要你', working: '工作中', finished: '已完成', idle: '閒置',
@@ -67,7 +67,7 @@
       update: '更新到', updating: '正在更新…', updateFailed: '更新失败', updated: '更新完成，正在重新加载…', gitPull: '用 git pull 更新',
       dl: '下载', installing: '正在下载场景…', installFailed: '场景下载失败。',
       langName: '简体中文', html: 'zh-Hans',
-      title: '我的 Agent 在干嘛', office: '办公室', list: '列表', wentHome: '已下班', qMid: '2D', qHigh: '3D',
+      title: '我的 Agent 在干嘛', office: '办公室', list: '列表', notShown: '未显示', guide: '说明', qMid: '2D', qHigh: '3D',
       loading3d: '正在加载 3D 办公室…', loading2d: '正在布置办公室…', failed3d: '3D 办公室加载失败，先用中画质显示。',
       all: '全部', subagents: '子 agent', showIdle: '闲置', notify: '完成时通知我', notifyOn: '通知已开启', disconnected: '连接中断，正在重试…',
       needsYou: '需要你', working: '工作中', finished: '已完成', idle: '闲置',
@@ -92,7 +92,7 @@
       update: '更新:', updating: '更新中…', updateFailed: '更新できませんでした', updated: '更新しました — 再読み込み中…', gitPull: 'git pull で更新',
       dl: 'ダウンロード', installing: 'シーンをダウンロード中…', installFailed: 'シーンをダウンロードできませんでした。',
       langName: '日本語', html: 'ja',
-      title: 'エージェントは何してる？', office: 'オフィス', list: 'リスト', wentHome: '人が退勤', qMid: '2D', qHigh: '3D',
+      title: 'エージェントは何してる？', office: 'オフィス', list: 'リスト', notShown: '人は非表示', guide: '説明', qMid: '2D', qHigh: '3D',
       loading3d: '3D オフィスを読み込み中…', loading2d: 'オフィスを準備中…', failed3d: '3D オフィスを読み込めませんでした。標準で表示します。',
       all: 'すべて', subagents: 'サブエージェント', showIdle: '待機中', notify: '完了を通知', notifyOn: '通知オン', disconnected: '切断されました — 再接続中…',
       needsYou: '要対応', working: '作業中', finished: '完了', idle: '待機中',
@@ -117,7 +117,7 @@
       update: '업데이트:', updating: '업데이트 중…', updateFailed: '업데이트 실패', updated: '업데이트 완료 — 새로고침 중…', gitPull: 'git pull로 업데이트',
       dl: '다운로드', installing: '장면 다운로드 중…', installFailed: '장면을 다운로드하지 못했습니다.',
       langName: '한국어', html: 'ko',
-      title: '내 에이전트는 뭐 하는 중?', office: '사무실', list: '목록', wentHome: '명 퇴근', qMid: '2D', qHigh: '3D',
+      title: '내 에이전트는 뭐 하는 중?', office: '사무실', list: '목록', notShown: '명 숨김', guide: '안내', qMid: '2D', qHigh: '3D',
       loading3d: '3D 사무실 불러오는 중…', loading2d: '사무실 준비 중…', failed3d: '3D 사무실을 불러오지 못해 보통 화질로 표시합니다.',
       all: '전체', subagents: '하위 에이전트', showIdle: '대기', notify: '완료 시 알림', notifyOn: '알림 켜짐', disconnected: '연결 끊김 — 다시 연결 중…',
       needsYou: '확인 필요', working: '작업 중', finished: '완료', idle: '대기',
@@ -142,7 +142,7 @@
       update: 'Actualizar a', updating: 'Actualizando…', updateFailed: 'No se pudo actualizar', updated: 'Actualizado — recargando…', gitPull: 'Actualiza con git pull',
       dl: 'descargar', installing: 'Descargando la escena…', installFailed: 'No se pudo descargar la escena.',
       langName: 'Español', html: 'es',
-      title: '¿Qué hacen mis agentes?', office: 'Oficina', list: 'Lista', wentHome: 'se fueron a casa', qMid: '2D', qHigh: '3D',
+      title: '¿Qué hacen mis agentes?', office: 'Oficina', list: 'Lista', notShown: 'no se muestran', guide: 'Guía', qMid: '2D', qHigh: '3D',
       loading3d: 'Cargando la oficina 3D…', loading2d: 'Preparando la oficina…', failed3d: 'No se pudo cargar la oficina 3D; se muestra la calidad media.',
       all: 'Todos', subagents: 'Subagentes', showIdle: 'Inactivos', notify: 'Avisarme al terminar', notifyOn: 'Avisos activados', disconnected: 'Desconectado — reintentando…',
       needsYou: 'Te necesitan', working: 'Trabajando', finished: 'Terminados', idle: 'Inactivos',
@@ -167,7 +167,7 @@
       update: 'Mettre à jour vers', updating: 'Mise à jour…', updateFailed: 'Échec de la mise à jour', updated: 'Mis à jour — rechargement…', gitPull: 'Mettre à jour avec git pull',
       dl: 'télécharger', installing: 'Téléchargement de la scène…', installFailed: 'Impossible de télécharger la scène.',
       langName: 'Français', html: 'fr',
-      title: 'Que font mes agents ?', office: 'Bureau', list: 'Liste', wentHome: 'sont rentrés', qMid: '2D', qHigh: '3D',
+      title: 'Que font mes agents ?', office: 'Bureau', list: 'Liste', notShown: 'non affichés', guide: 'Guide', qMid: '2D', qHigh: '3D',
       loading3d: 'Chargement du bureau 3D…', loading2d: 'Préparation du bureau…', failed3d: 'Impossible de charger le bureau 3D — affichage en qualité moyenne.',
       all: 'Tous', subagents: 'Sous-agents', showIdle: 'Inactifs', notify: 'Me prévenir à la fin', notifyOn: 'Notifications activées', disconnected: 'Déconnecté — nouvelle tentative…',
       needsYou: 'Besoin de vous', working: 'Au travail', finished: 'Terminés', idle: 'Inactifs',
@@ -192,7 +192,7 @@
       update: 'Aktualisieren auf', updating: 'Wird aktualisiert…', updateFailed: 'Aktualisierung fehlgeschlagen', updated: 'Aktualisiert – wird neu geladen…', gitPull: 'Mit git pull aktualisieren',
       dl: 'herunterladen', installing: 'Szene wird heruntergeladen…', installFailed: 'Szene konnte nicht geladen werden.',
       langName: 'Deutsch', html: 'de',
-      title: 'Was machen meine Agents?', office: 'Büro', list: 'Liste', wentHome: 'im Feierabend', qMid: '2D', qHigh: '3D',
+      title: 'Was machen meine Agents?', office: 'Büro', list: 'Liste', notShown: 'nicht angezeigt', guide: 'Hilfe', qMid: '2D', qHigh: '3D',
       loading3d: '3D-Büro wird geladen…', loading2d: 'Büro wird eingerichtet…', failed3d: '3D-Büro konnte nicht geladen werden – Anzeige in mittlerer Qualität.',
       all: 'Alle', subagents: 'Sub-Agents', showIdle: 'Inaktiv', notify: 'Benachrichtigen, wenn fertig', notifyOn: 'Benachrichtigungen an', disconnected: 'Verbindung getrennt – neuer Versuch…',
       needsYou: 'Braucht dich', working: 'Arbeitet', finished: 'Fertig', idle: 'Inaktiv',
@@ -217,7 +217,7 @@
       update: 'Atualizar para', updating: 'Atualizando…', updateFailed: 'Não foi possível atualizar', updated: 'Atualizado — recarregando…', gitPull: 'Atualize com git pull',
       dl: 'baixar', installing: 'Baixando o cenário…', installFailed: 'Não foi possível baixar o cenário.',
       langName: 'Português', html: 'pt',
-      title: 'O que meus agentes estão fazendo?', office: 'Escritório', list: 'Lista', wentHome: 'foram para casa', qMid: '2D', qHigh: '3D',
+      title: 'O que meus agentes estão fazendo?', office: 'Escritório', list: 'Lista', notShown: 'não exibidos', guide: 'Guia', qMid: '2D', qHigh: '3D',
       loading3d: 'Carregando o escritório 3D…', loading2d: 'Preparando o escritório…', failed3d: 'Não foi possível carregar o escritório 3D — exibindo em qualidade média.',
       all: 'Todos', subagents: 'Subagentes', showIdle: 'Ociosos', notify: 'Avisar quando terminar', notifyOn: 'Avisos ativados', disconnected: 'Desconectado — tentando de novo…',
       needsYou: 'Precisam de você', working: 'Trabalhando', finished: 'Concluídos', idle: 'Ociosos',
@@ -227,6 +227,89 @@
       close: 'Fechar', confirmClose: 'Confirmar fechamento?', closed: 'Fechada ✓', closeFailed: 'Não foi possível fechar', ended: 'Encerradas',
       spawnedBy: (p) => `↳ iniciada por ${p}`, feedDown: (r) => `AgentDeck não está em execução — estimando pelos registros (${r})`,
       doneNote: (p) => `${p} terminou`,
+    },
+  };
+
+  // Guide tab text. Long-form, so it lives outside the per-key table above:
+  // English and Traditional Chinese, every other language falls back to English.
+  const GUIDE = {
+    en: {
+      statusH: 'Statuses',
+      status: {
+        thinking: 'Working on a turn, no tool running yet. Sits at a desk.',
+        tool: 'Running a tool (shell, edit, search…). The tool name shows above the head. Sits at a desk.',
+        typing: 'Writing the reply. Sits at a desk.',
+        waiting: 'Needs you: a permission prompt or a question. Stands up and waves with a “!”.',
+        error: 'The last turn failed. Stands up with a “!”.',
+        done: 'Finished its last turn and replied. Leaves the desk; a ✓ shows for 3 minutes.',
+        interrupted: 'The turn was stopped before it finished. Leaves the desk.',
+        idle: 'Open but nothing to report: no finished turn yet (just started, after /clear), or stuck so long it was demoted. Rests in the lounge with “z z z”.',
+      },
+      doneIdleH: 'Done vs Idle',
+      doneIdle: [
+        'Done means the agent answered you and is waiting for your next message.',
+        'Idle means there is no answer to read: the session never completed a turn, or the state went stale.',
+        'Stale states are demoted to idle: thinking after 15 min, a tool after 45 min, waiting or error after 2 h of silence.',
+        'Without AgentDeck (log only), a reply that stays silent for 45 s counts as done.',
+      ],
+      countsH: 'Counts at the top',
+      counts: [
+        'Needs you = waiting + error · Working = thinking + running + writing · Finished = done + interrupted · Idle = idle.',
+        'They count every open session, so the four add up to the sessions present, not to the people you can see.',
+        'The office draws at most 7 off-duty people, and a fixed 3D scene has a limited number of desks. Everyone else is the “+N not shown” in the corner. People walking in or out are also not counted on screen.',
+      ],
+      peopleH: 'Reading the office',
+      people: [
+        'Name tag: the session name (from /rename or its summary), else the project folder. The dot and outline are the status colour.',
+        'Above the head: purple dots = thinking, ⚙ name = running a tool, pink bubble = writing, ! = needs you, ✓ = just finished, z z z = idle.',
+        'Hover someone to see details; they stop walking while you do. Click to pin the details (they stay put too); Esc or a click on an empty spot in the office unpins.',
+        'Subagents are smaller and show only their agent badge until hovered. “↳ started by …” names the parent. A subagent takes the free desk nearest its parent when both have a desk.',
+      ],
+      actionsH: 'Actions',
+      actions: [
+        'Close: click once to arm (“Confirm close?”), click again within 4 s to send SIGTERM to that session.',
+        'Copy resume cmd: copies cd + resume command so you can reopen the session in a terminal.',
+        'Settings: filter by agent, show subagents / idle in the list, show agent badges, language.',
+      ],
+    },
+    'zh-TW': {
+      statusH: '狀態',
+      status: {
+        thinking: '正在處理這一輪，還沒跑工具。坐在桌前。',
+        tool: '正在跑工具（shell、改檔、搜尋…），頭上顯示工具名。坐在桌前。',
+        typing: '正在寫回覆。坐在桌前。',
+        waiting: '需要你：權限確認或問你問題。站起來揮手，頭上「!」。',
+        error: '上一輪出錯。站起來，頭上「!」。',
+        done: '上一輪做完並回覆了。離開座位；頭上「✓」顯示 3 分鐘。',
+        interrupted: '這一輪沒做完就被中斷。離開座位。',
+        idle: '開著但沒有可回報的：還沒完成過任何一輪（剛開、/clear 之後），或卡太久被降級。在休息區「z z z」。',
+      },
+      doneIdleH: 'Done 和 Idle 的差別',
+      doneIdle: [
+        'Done：agent 已經回覆你，正在等你的下一句話。',
+        'Idle：沒有可讀的回覆——這個 session 從沒完成過一輪，或狀態已經過期。',
+        '過期會被降級成 idle：thinking 安靜 15 分、跑工具 45 分、等你或出錯 2 小時。',
+        '沒有 AgentDeck（只看 log）時，寫回覆後安靜 45 秒就視為 done。',
+      ],
+      countsH: '上方的計數',
+      counts: [
+        'Needs you = 等你 + 出錯 · Working = 思考 + 執行 + 寫回覆 · Finished = 完成 + 中斷 · Idle = 閒置。',
+        '計的是所有開著的 session，四個加起來 = 在場 session 數，不是畫面上看得到的人數。',
+        '辦公室最多畫 7 個沒在工作的人，固定的 3D 場景桌子數有限；其餘的人算在角落的「+N 未顯示」。正在走進、走出門的人也不會和計數一致。',
+      ],
+      peopleH: '怎麼看辦公室',
+      people: [
+        '名牌：session 名稱（/rename 或摘要標題），沒有就顯示專案資料夾。左邊圓點和外框是狀態色。',
+        '頭上：紫色三點 = 思考、⚙ 工具名 = 執行中、桃紅泡泡 = 寫回覆、! = 需要你、✓ = 剛做完、z z z = 閒置。',
+        '滑鼠移到人身上看詳情，那個人會停下腳步；點一下把詳情釘住（人也停著），Esc 或點辦公室空白處取消。',
+        '子 agent 比較小，平常只顯示 agent 圖示，hover 才看到名牌；「↳ started by …」是父 session。父子都有桌子時，子 agent 坐在離父最近的空桌。',
+      ],
+      actionsH: '操作',
+      actions: [
+        'Close：按一次變成「Confirm close?」，4 秒內再按一次才會對該 session 送 SIGTERM。',
+        'Copy resume cmd：複製 cd + resume 指令，貼到終端機就能接回該 session。',
+        'Settings：依 agent 篩選、列表顯示子 agent／閒置、顯示 agent 圖示、語言。',
+      ],
     },
   };
 
@@ -242,5 +325,6 @@
   }
 
   window.I18N = S;
+  window.I18N_GUIDE = GUIDE;
   window.i18nFromBrowser = fromBrowser;
 })();

@@ -71,7 +71,7 @@ async function drawnLogos(target) {
   },sessions);
   context.on('page',p=>p.on('pageerror',e=>errors.push(String(e))));
   const page=await context.newPage();await page.goto(base);await stable(page);
-  assert.equal(await page.locator('h1 [data-t]').innerText(),"What's my agent doing");
+  assert.equal(await page.locator('h1 [data-t]').innerText(),'What are my agents doing');
   assert.equal(await page.locator('#showAgent').isChecked(),true);
   assert.deepEqual([...new Set(await badges(page))].sort(),['Cl','Cx','G']);
   assert.deepEqual(await drawnLogos(page),['claude','codex','gemini']);
@@ -95,6 +95,60 @@ async function drawnLogos(target) {
   await page.evaluate(s=>onData({now:Date.now(),sessions:s}),sessions);
   assert.ok(seatGap<3,`subagent sits ${seatGap.toFixed(2)} from its parent`);
   check('a subagent takes the free desk nearest its parent');
+  const offDesk=await page.evaluate(()=>{
+   const now=Date.now();
+   const mk=(i,status)=>({key:`claude:off${i}`,id:`off${i}`,agent:'claude',project:'p',status,lastEventAt:now-i,startedAt:now});
+   office.update([...Array(10)].map((_,i)=>mk(i,i%2?'done':'idle')));
+   const seats=office.plan.desks.map(d=>d.seat);
+   let onDesk=0;
+   for(let round=0;round<40;round++) for(const p of office.people.values()){
+    p.path=[];p.until=0;office.wander(p,Date.now());
+    if(p.poi&&seats.some(q=>Math.hypot(q.x-p.poi.x,q.y-p.poi.y)<0.05)) onDesk++;
+   }
+   return {onDesk,offDuty:office.offDuty};
+  });
+  assert.deepEqual(offDesk,{onDesk:0,offDuty:3});
+  check('done and idle agents never take a desk; past the wanderer cap they count as not shown');
+  const deskless=await page.evaluate(()=>{
+   const now=Date.now();
+   office.plan.fixed=true;office.plan.desks=office.plan.desks.slice(0,1);office.deskOf.clear();
+   office.update([1,2,3].map(i=>({key:`codex:w${i}`,id:`w${i}`,agent:'codex',project:'p',status:'tool',lastEventAt:now,startedAt:now+i})));
+   return office.offDuty;
+  });
+  assert.equal(deskless,2);
+  check('working sessions without a desk in a fixed plan count as not shown');
+  await page.reload();await stable(page);
+  assert.deepEqual(await page.evaluate(()=>[office.label({title:'tg2082-sql',project:'okcloud',agent:'claude'}),office.label({project:'okcloud',agent:'claude'})]),['tg2082-sql','okcloud']);
+  check('name tags show the session name, falling back to the project folder');
+  const hold=await page.evaluate(()=>{
+   const p=[...office.people.values()][0];
+   p.path=[{x:p.x+3,y:p.y}];p.leaving=false;
+   const x0=p.x;office.hoverKey=p.key;office.step(0.3);
+   const held={moved:p.x!==x0,pose:office.stateOf(p).pose,path:p.path.length};
+   office.hoverKey=null;office.holdKey=p.key;office.step(0.3);const pinnedMoved=p.x!==x0;
+   p.leaving=true;office.step(0.3);const leavingMoved=p.x!==x0;
+   p.leaving=false;office.holdKey=null;office.step(0.3);
+   return {...held,pinnedMoved,leavingMoved,resumed:p.x!==x0};
+  });
+  assert.deepEqual(hold,{moved:false,pose:'stand',path:1,pinnedMoved:false,leavingMoved:true,resumed:true});
+  check('a hovered or pinned walker stops in place and resumes; leaving people are never held');
+  const chips=await page.evaluate(()=>{
+   const n=[...document.querySelectorAll('#summary .chip b')].map(b=>+b.textContent);
+   const present=state.data.sessions.filter(s=>s.alive!==false&&(state.showSub||!s.subagent)).length;
+   return {count:n.length,sum:n.reduce((a,b)=>a+b,0),present};
+  });
+  assert.equal(chips.count,4);assert.equal(chips.sum,chips.present);
+  check('four summary chips add up to the sessions present');
+  await page.click('#viewSeg [data-v=guide]');
+  assert.equal(await page.locator('#officeWrap').isVisible(),false);
+  assert.match(await page.locator('main .guide').textContent(),/Done vs Idle/);
+  await page.waitForTimeout(1200);assert.equal(await page.locator('main .guide').count(),1);
+  await openSettings(page);await page.selectOption('#langSel','zh-TW');
+  assert.match(await page.locator('main .guide').textContent(),/Done 和 Idle 的差別/);
+  await openSettings(page);await page.selectOption('#langSel','auto');
+  await page.click('#viewSeg [data-v=office]');await stable(page);
+  assert.equal(await page.locator('#officeWrap').isVisible(),true);
+  check('guide tab renders, survives refreshes, follows language and switches back');
   await openSettings(page);await page.uncheck('#showAgent');assert.equal((await badges(page)).length,0);
   assert.equal(await page.locator('#agentLegend').isVisible(),false);
   await page.reload();await stable(page);assert.equal(await page.locator('#showAgent').isChecked(),false);

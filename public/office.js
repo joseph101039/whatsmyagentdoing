@@ -34,13 +34,13 @@
   const PANEL = ['#7d93c4', '#d98b6a', '#7fb08a', '#c9a24c'];
 
   const STATUS_COLOR = {
-    thinking: '#8b6be6', tool: '#3b8ee0', typing: '#22a874', waiting: '#e09412',
+    thinking: '#8b6be6', tool: '#3b8ee0', typing: '#e0569b', waiting: '#e09412',
     done: '#5f9a4c', error: '#de4b40', interrupted: '#9b9a94', idle: '#9b9a94',
   };
 
   const ACT_EMOJI = {
-    coffee: '☕', water: '💧', fridge: '🍎', sink: '🫧', stool: '💬', couch: '💬', beanbag: '🎧',
-    window: '☁️', read: '📖', whiteboard: '✏️', meeting: '💬', arcade: '🎮', pingpong: '🏓', plant: '🌱',
+    coffee: '☕', water: '💧', fridge: '🍎', sink: '🫧', beanbag: '🎧',
+    window: '☁️', read: '📖', whiteboard: '✏️', arcade: '🎮', pingpong: '🏓', plant: '🌱',
     vending: '🥤', foosball: '⚽', phone: '📞',
   };
 
@@ -194,7 +194,7 @@
       this.onFrame = onFrame;
       this.showAgent = showAgent;
       this.compact = compact;
-      this.offDutyLabel = 'went home';
+      this.offDutyLabel = 'not shown';
       this.canvas = document.createElement('canvas');
       this.canvas.className = 'office-canvas';
       root.appendChild(this.canvas);
@@ -206,6 +206,7 @@
       this.visible = true;
       this.hit = [];
       this.hoverKey = null;
+      this.holdKey = null; // session whose tooltip is pinned; it stays put too
       this.t = performance.now();
       this.pal = palette();
       this.plan = this.buildPlan(0);
@@ -476,6 +477,8 @@
         .filter((s) => !WORKING.has(s.status))
         .sort((a, b) => (b.lastEventAt || 0) - (a.lastEventAt || 0));
       const wanderers = off.slice(0, MAX_WANDERERS);
+      // Present but not drawn: off-duty agents past the wanderer cap, plus
+      // working ones a fixed floor plan had no desk for.
       this.offDuty = off.length - wanderers.length;
 
       const cap = this.plan.desks.length;
@@ -483,7 +486,7 @@
       if (!this.plan.fixed && (working.length > cap - 1 || (cap > 8 && working.length < cap * 0.35))) {
         this.plan = this.buildPlan(working.length);
         this.deskOf.clear();
-        for (const p of this.people.values()) { p.poi = null; p.napDesk = null; p.desk = null; p.until = 0; }
+        for (const p of this.people.values()) { p.poi = null; p.desk = null; p.until = 0; }
       }
 
       const workKeys = new Set(working.map((s) => s.key));
@@ -507,12 +510,11 @@
         this.deskOf.set(s.key, i);
         used.add(i);
       }
-      const takenDesks = new Set([...this.deskOf.values()].map((i) => desks[i]));
 
       const shown = new Set();
       for (const s of [...working, ...wanderers]) {
         const isWorker = this.deskOf.has(s.key);
-        if (!isWorker && WORKING.has(s.status)) continue; // no desk left
+        if (!isWorker && WORKING.has(s.status)) { this.offDuty++; continue; } // no desk left
         shown.add(s.key);
         let p = this.people.get(s.key);
         if (!p) { p = this.newPerson(s); this.people.set(s.key, p); }
@@ -525,8 +527,6 @@
           p.mode = 'work';
         } else {
           if (p.mode !== 'wander') { p.mode = 'wander'; p.desk = null; p.poi = null; p.until = 0; }
-          // Someone started working at the desk this one was napping on.
-          if (p.napDesk && takenDesks.has(p.napDesk)) { this.release(p); p.path = []; }
         }
       }
       for (const [k, p] of this.people) {
@@ -543,7 +543,6 @@
 
     release(p) {
       if (p.poi) { p.poi.taken = null; p.poi = null; }
-      if (p.napDesk) { p.napDesk.napper = null; p.napDesk = null; }
     }
 
     newPerson(s) {
@@ -575,7 +574,8 @@
       if (p.poi && now < p.until) return;
       this.release(p);
       const plan = this.plan;
-      const workingDesks = new Set([...this.deskOf.values()].map((i) => plan.desks[i]));
+      // Desks are only for agents with a turn in progress; off-duty agents,
+      // finished or idle, rest in the lounge instead of dozing at a desk.
       const sleepy = p.s.status === 'idle';
       const weighted = [];
       for (const q of plan.pois) {
@@ -585,19 +585,14 @@
         if (q.act === 'couch' || q.act === 'beanbag' || q.sleepy) w = sleepy ? 3 : 1.4;
         weighted.push([q, w]);
       }
-      for (const d of plan.noNap ? [] : plan.desks) {
-        if (workingDesks.has(d) || d.napper) continue;
-        weighted.push([{ x: d.seat.x, y: d.seat.y, act: 'nap', face: d.side === 'n' ? 'front' : 'back', sit: 0.34, desk: d }, sleepy ? 3 : 0.25]);
-      }
       if (!weighted.length) return;
       let r = Math.random() * weighted.reduce((a, [, w]) => a + w, 0);
       let choice = weighted[0][0];
       for (const [q, w] of weighted) { r -= w; if (r <= 0) { choice = q; break; } }
-      if (choice.desk) { choice.desk.napper = p.key; p.napDesk = choice.desk; }
       choice.taken = p.key;
       p.poi = choice;
       p.until = Infinity; // set on arrival
-      p.stay = (choice.act === 'nap' ? rand(25, 60) : choice.act === 'pingpong' ? rand(15, 30) : rand(8, 20)) * 1000;
+      p.stay = (choice.act === 'pingpong' ? rand(15, 30) : rand(8, 20)) * 1000;
       this.goTo(p, choice);
     }
 
@@ -1142,9 +1137,15 @@
 
     // ------------------------------------------------------------ people
 
+    // Someone under the mouse or with a pinned tooltip stops walking so the
+    // details stay readable; people heading out the door are never held.
+    held(p) {
+      return !p.leaving && (p.key === this.hoverKey || p.key === this.holdKey);
+    }
+
     stateOf(p) {
       const s = p.s || {};
-      if (p.path.length) return { pose: 'walk', face: p.walkFace, act: null, sitZ: 0 };
+      if (p.path.length) return { pose: this.held(p) ? 'stand' : 'walk', face: p.walkFace, act: null, sitZ: 0 };
       if (p.mode === 'work' && p.desk) {
         const face = p.desk.side === 'n' ? 'front' : 'back';
         if (s.status === 'waiting' || s.status === 'error') return { pose: 'stand', face, act: 'wave', sitZ: 0 };
@@ -1263,11 +1264,6 @@
           c.fillStyle = '#222'; c.fillRect(5, hip - 25, 3, 6);
           break;
         }
-        case 'nap': {
-          c.fillRect(-9, hip - 13, 3, 6);
-          c.fillRect(6, hip - 13, 3, 6);
-          break;
-        }
         default: {
           const sw = moving ? step * 2 : 0;
           c.fillRect(-9, hip - 11 + sw, 3, 10);
@@ -1275,12 +1271,11 @@
         }
       }
 
-      const napping = st.act === 'nap';
-      const hy = hip - 20 + (napping ? 7 : 0) + (st.act === 'think' ? Math.sin(t * 1.5 + p.phase) * 0.6 : 0);
+      const hy = hip - 20 + (st.act === 'think' ? Math.sin(t * 1.5 + p.phase) * 0.6 : 0);
       c.fillStyle = p.skin;
       c.beginPath(); c.arc(0, hy, 7, 0, Math.PI * 2); c.fill();
       c.fillStyle = p.hair;
-      if (front && !napping) {
+      if (front) {
         c.beginPath(); c.arc(0, hy - 1.5, 7.3, Math.PI * 1.05, Math.PI * 1.95); c.fill();
         if (p.hairStyle === 1) { c.fillRect(-7.3, hy - 2, 2.5, 8); c.fillRect(4.8, hy - 2, 2.5, 8); }
         if (p.hairStyle === 2) { c.beginPath(); c.arc(0, hy - 8, 3.2, 0, Math.PI * 2); c.fill(); }
@@ -1325,17 +1320,24 @@
       c.font = font(600, 10);
 
       const badge = this.showAgent && AGENT_BADGES[s.agent];
-      const pill = (text, fg, bg, yy, alpha = 1, identify = false) => {
+      // ring: status colour for the outline and a dot before the text, so the
+      // name tag alone tells the state even when no bubble is drawn.
+      const pill = (text, fg, bg, yy, alpha = 1, identify = false, ring = null) => {
         c.globalAlpha = alpha;
         let tx = text;
         while (c.measureText(tx).width > 118 && tx.length > 2) tx = tx.slice(0, -2) + '…';
         const extra = badge && identify ? 26 : 0;
-        const w = c.measureText(tx).width + 12 + extra;
+        const dot = ring ? 10 : 0;
+        const w = c.measureText(tx).width + 12 + extra + dot;
         const height = extra ? 22 : 16;
-        this.roundRect(x - w / 2, yy - height / 2, w, height, 8, bg);
+        this.roundRect(x - w / 2, yy - height / 2, w, height, 8, bg, ring);
         c.fillStyle = fg;
-        c.fillText(tx, x + extra / 2, yy + 0.5);
+        c.fillText(tx, x + (extra + dot) / 2, yy + 0.5);
         if (extra) this.agentBadge(badge, x - w / 2 + 13, yy);
+        if (dot) {
+          c.fillStyle = ring;
+          c.beginPath(); c.arc(x - w / 2 + extra + 9, yy, 3.5, 0, Math.PI * 2); c.fill();
+        }
         c.globalAlpha = 1;
         return yy - 8;
       };
@@ -1377,7 +1379,7 @@
         }
       } else if (p.mode === 'wander') {
         const justDone = st === 'done' && Date.now() - (s.lastEventAt || 0) < 3 * 60_000;
-        const dozing = at.act === 'nap' || (st === 'idle' && (at.act === 'couch' || at.act === 'beanbag' || (p.poi && p.poi.sleepy)));
+        const dozing = (st === 'idle' && (at.act === 'couch' || at.act === 'beanbag' || (p.poi && p.poi.sleepy)));
         if (justDone) {
           c.fillStyle = STATUS_COLOR.done;
           c.beginPath(); c.arc(x, y - 10, 7, 0, Math.PI * 2); c.fill();
@@ -1408,10 +1410,16 @@
       }
 
       const hover = this.hoverKey === p.key;
+      const ring = STATUS_COLOR[st] || STATUS_COLOR.idle;
       if (!s.subagent || hover) {
-        pill(this.label(s), pal.text, pal.tagBg, top - 11, p.mode === 'work' || hover ? 1 : 0.7, true);
+        pill(this.label(s), pal.text, pal.tagBg, top - 11, p.mode === 'work' || hover ? 1 : 0.7, true, ring);
       } else if (badge) {
         this.agentBadge(badge, x, top - 11);
+        c.strokeStyle = ring; c.lineWidth = 2;
+        c.beginPath(); c.arc(x, top - 11, 11, 0, Math.PI * 2); c.stroke();
+      } else {
+        c.fillStyle = ring;
+        c.beginPath(); c.arc(x, top - 8, 4, 0, Math.PI * 2); c.fill();
       }
       c.restore();
     }
@@ -1520,6 +1528,7 @@
     step(dt) {
       const wall = Date.now();
       for (const [k, p] of this.people) {
+        if (this.held(p)) continue;
         if (p.mode === 'wander') {
           if (p.poi && !p.path.length && p.until === Infinity) p.until = wall + p.stay;
           this.wander(p, wall);
@@ -1549,7 +1558,6 @@
       const occupant = new Map();
       for (const p of this.people.values()) {
         if (p.mode === 'work' && p.desk) occupant.set(p.desk, p);
-        else if (p.napDesk) occupant.set(p.napDesk, p);
       }
       const items = [...this.plan.items];
       for (const dk of this.plan.desks) {

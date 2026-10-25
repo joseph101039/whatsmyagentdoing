@@ -18,7 +18,7 @@ const FURNITURE = ['desk', 'chairDesk', 'computerScreen', 'computerKeyboard', 'c
   'coatRackStanding', 'radio', 'speaker', 'toaster', 'cardboardBoxClosed'];
 
 const STATUS_COLOR = {
-  thinking: 0x8b6be6, tool: 0x3b8ee0, typing: 0x22a874, waiting: 0xe09412, error: 0xde4b40,
+  thinking: 0x8b6be6, tool: 0x3b8ee0, typing: 0xe0569b, waiting: 0xe09412, error: 0xde4b40,
 };
 const CHAR_HEIGHT = 0.92; // world units (≈ tiles)
 const WALL_H = 2.4;
@@ -47,7 +47,7 @@ function scenePlan(def) {
   }));
   return {
     W: def.W, D: def.D, viewH: def.viewH, grid, items: [], props: [], pois, desks,
-    windows: [], posters: [], pp: null, door: def.spawn, fixed: true, noNap: true, terrain: !!def.terrain, scene: def,
+    windows: [], posters: [], pp: null, door: def.spawn, fixed: true, terrain: !!def.terrain, scene: def,
   };
 }
 
@@ -107,7 +107,7 @@ export class Office3D extends window.Office {
     this.sun.shadow.normalBias = 0.02;
     this.scene.add(this.sun, this.sun.target);
 
-    this.actors = new Map();     // person key -> { obj, mixer, actions, current, head, cup }
+    this.actors = new Map();     // person key -> { obj, mixer, actions, current, cup }
     this.screens = new Map();    // desk -> emissive screen mesh
     this.blinkers = [];
     this.loaded = false;
@@ -995,14 +995,14 @@ export class Office3D extends window.Office {
     const mixer = new THREE.AnimationMixer(obj);
     const actions = {};
     for (const clip of gltf.animations) actions[clip.name] = mixer.clipAction(clip);
-    let head = null, armR = null;
-    obj.traverse((o) => { if (o.name === 'head') head = o; if (o.name === 'arm-right') armR = o; });
+    let armR = null;
+    obj.traverse((o) => { if (o.name === 'arm-right') armR = o; });
     const prop = new THREE.Group();
     const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.1, 10), new THREE.MeshStandardMaterial({ color: 0xffffff }));
     const book = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.28, 0.04), new THREE.MeshStandardMaterial({ color: 0xc96442 }));
     prop.add(cup, book);
     this.scene.add(obj, prop);
-    a = { obj, mixer, actions, current: null, head, headRest: head ? head.rotation.x : 0, armR, prop, cup, book, yaw: 0, last: { x: p.x, y: p.y } };
+    a = { obj, mixer, actions, current: null, armR, prop, cup, book, yaw: 0, last: { x: p.x, y: p.y } };
     this.actors.set(p.key, a);
     return a;
   }
@@ -1017,7 +1017,7 @@ export class Office3D extends window.Office {
   }
 
   facing(p, st) {
-    if (st.pose === 'walk') return null;
+    if (p.path.length) return null;
     if (p.mode === 'work' && p.desk) {
       if (p.desk.yaw != null) return p.desk.yaw;
       return p.desk.side === 'n' ? 0 : Math.PI;
@@ -1048,13 +1048,13 @@ export class Office3D extends window.Office {
       }[st.pose === 'walk' ? 'walk' : st.act] || (st.pose === 'sit' ? 'sit' : 'idle');
       let chosen = anim;
       if (st.act === 'station') chosen = p.s.status === 'thinking' ? 'idle' : (p.desk.anim || 'interact-right');
-      else if (st.pose !== 'walk' && p.poi && p.poi.anim) chosen = p.poi.anim;
+      else if (!p.path.length && p.poi && p.poi.anim) chosen = p.poi.anim;
       this.play(a, chosen);
       a.mixer.update(dt);
 
       // position + facing
       const dx = p.x - a.last.x, dy = p.y - a.last.y;
-      let want = st.pose !== 'walk' && p.poi && p.poi.float ? null : this.facing(p, st);
+      let want = !p.path.length && p.poi && p.poi.float ? null : this.facing(p, st);
       if (want == null && Math.hypot(dx, dy) > 0.001) want = Math.atan2(dx, dy);
       if (want != null) {
         let d = want - a.yaw;
@@ -1069,19 +1069,15 @@ export class Office3D extends window.Office {
       // forward so the back rests against the backrest instead of in it.
       const fwd = st.pose === 'sit' ? SIT_FORWARD : 0;
       let lift = 0;
-      if (st.pose !== 'walk' && p.poi && p.poi.float) {
+      if (!p.path.length && p.poi && p.poi.float) {
         // zero gravity: drift up and down, slowly turning
         const k = this.t / 1000 + p.phase;
         lift = 0.45 + Math.sin(k * 0.9) * 0.18;
         a.yaw += dt * 0.35;
       }
       a.obj.position.set(p.x + Math.sin(a.yaw) * fwd, seatY + lift, p.y + Math.cos(a.yaw) * fwd);
-      if (a.head) {
-        if (st.act === 'nap') { a.head.rotation.x = a.headRest + 0.55; a.napped = true; }
-        else if (a.napped) { a.head.rotation.x = a.headRest; a.napped = false; }
-      }
       // hand-held props
-      a.cup.visible = st.act === 'coffee' || st.act === 'water' || (st.pose !== 'walk' && p.poi && p.poi.prop === 'cup');
+      a.cup.visible = st.act === 'coffee' || st.act === 'water' || (!p.path.length && p.poi && p.poi.prop === 'cup');
       a.book.visible = st.act === 'read';
       if (a.armR && (a.cup.visible || a.book.visible)) {
         a.obj.updateMatrixWorld(true);
@@ -1211,7 +1207,7 @@ export class Office3D extends window.Office {
       const st = this.stateOf(p);
       const scale = p.s.subagent ? 0.8 : 1;
       const base = this.plan.terrain && st.pose !== 'sit' ? this.groundHeight(p.x, p.y) : 0;
-      const floatUp = st.pose !== 'walk' && p.poi && p.poi.float ? 0.45 + Math.sin((this.t / 1000 + p.phase) * 0.9) * 0.18 : 0;
+      const floatUp = !p.path.length && p.poi && p.poi.float ? 0.45 + Math.sin((this.t / 1000 + p.phase) * 0.9) * 0.18 : 0;
       const top = (st.pose === 'sit' ? this.seatHeight(p.x, p.y, st.sitZ) + CHAR_HEIGHT * 0.8 * scale : base + CHAR_HEIGHT * scale) + floatUp;
       v.set(p.x, top + 0.05, p.y).project(this.camera);
       const sx = (v.x + 1) / 2 * this.cw, sy = (1 - v.y) / 2 * this.ch;
