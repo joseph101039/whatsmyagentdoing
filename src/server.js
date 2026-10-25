@@ -18,6 +18,8 @@ const TYPES = { '.js': 'text/javascript; charset=utf-8', '.glb': 'model/gltf-bin
 const MOUNTS = { '/assets/': path.join(__dirname, '..', 'assets') };
 const scenes = require('./scenes');
 const updater = require('./update');
+const { mergeSessions, pluginParents, isPresent } = require('./agentdeck');
+const { canClose, closeSession, inspectCached, precheck } = require('./close');
 
 function serveFile(res, root, rel) {
   const file = path.normalize(path.join(root, rel));
@@ -35,13 +37,17 @@ const ACTIVE = new Set(['thinking', 'tool', 'typing']);
 // Logs only record finished blocks, so a few states need a clock to resolve:
 // a reply with no follow-up is a finished turn, and an "active" session that
 // has gone silent for a long time was most likely closed mid-turn.
-function view(s, now, { privacy }) {
+// With the AgentDeck feed, `deck` maps keys to live.json rows; sessions it
+// reports as running come from hooks and need no clock.
+function view(s, now, { privacy }, deck) {
   const quiet = now - (s.lastEventAt || s.mtime || now);
   let status = s.status;
-  if (status === 'typing' && quiet > 45_000) status = 'done';
-  if (status === 'thinking' && quiet > 15 * 60_000) status = 'idle';
-  if (status === 'tool' && quiet > 45 * 60_000) status = 'idle';
-  if ((status === 'waiting' || status === 'error') && quiet > 2 * 3600_000) status = 'idle';
+  if (s.alive !== true) {
+    if (status === 'typing' && quiet > 45_000) status = 'done';
+    if (status === 'thinking' && quiet > 15 * 60_000) status = 'idle';
+    if (status === 'tool' && quiet > 45 * 60_000) status = 'idle';
+    if ((status === 'waiting' || status === 'error') && quiet > 2 * 3600_000) status = 'idle';
+  }
 
   const out = {
     key: `${s.agent}:${s.id}`,
@@ -63,6 +69,15 @@ function view(s, now, { privacy }) {
     lastEventAt: s.lastEventAt || s.mtime,
     startedAt: s.startedAt,
   };
+  if (deck) {
+    const row = deck.get(out.key);
+    out.alive = s.alive === true;
+    out.pid = s.pid ?? null;
+    out.spawnedBy = s.spawnedBy || null;
+    out.waitingReason = s.waitingReason || null; // a fixed phrase, kept in privacy mode
+    // ps is only consulted for rows that pass the cheap checks, and cached
+    out.closable = !!row && out.alive && !precheck(row) && canClose(row, inspectCached(row.agentPid, now), now).ok;
+  }
   if (privacy) {
     out.prompt = out.reply = out.title = null;
     if (out.activity) out.activity = out.activity.split(/[:\s]/)[0];
@@ -81,12 +96,32 @@ function promptLanguage(raw) {
   return guessFromPrompts(recent);
 }
 
+// opts.feed (--agentdeck): a FeedSource. When it's fresh it decides who is
+// present; when not, fall back to the logs and say why.
 function snapshot(watcher, opts) {
   const now = Date.now();
-  const raw = watcher.sessions();
-  const sessions = raw.map((s) => view(s, now, opts));
+  let raw = watcher.sessions();
+  let deck = null;
+  let feed = null;
+  if (opts.feed) {
+    const r = opts.feed.read(now);
+    if (r.ok) {
+      deck = new Map(r.feed.sessions.filter((x) => x && x.sessionId).map((x) => [`${x.provider}:${x.sessionId}`, x]));
+      if (watcher.setPinned) {
+        watcher.setPinned([...deck.values()].filter((x) => isPresent(x, now)).map((x) => ({ agent: x.provider, id: x.sessionId })));
+      }
+      raw = mergeSessions(raw, r.feed, pluginParents(), now);
+      feed = { mode: 'agentdeck' };
+    } else {
+      if (watcher.setPinned) watcher.setPinned([]);
+      feed = { mode: 'logs', reason: r.reason };
+    }
+  }
+  const sessions = raw.map((s) => view(s, now, opts, deck));
   sessions.sort((a, b) => (b.lastEventAt || 0) - (a.lastEventAt || 0));
-  return { now, lang: opts.demo ? null : promptLanguage(raw), sessions };
+  const out = { now, lang: opts.demo ? null : promptLanguage(raw), sessions };
+  if (feed) out.feed = feed;
+  return out;
 }
 
 function createServer(watcher, opts, { onShutdown, onRestart } = {}) {
@@ -150,6 +185,16 @@ function createServer(watcher, opts, { onShutdown, onRestart } = {}) {
     } else if (url.pathname === '/api/sessions') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(snapshot(watcher, opts)));
+    } else if (url.pathname === '/api/sessions/close' && req.method === 'POST') {
+      // Same guard as shutdown: web pages can't send this header cross-site.
+      if (req.headers['x-whatsmyagentdoing'] !== 'close' || !opts.feed) { res.writeHead(403).end(); return; }
+      // Decide on the latest rows, not the ones the page was rendered from.
+      const r = opts.feed.read(Date.now(), { force: true });
+      const key = url.searchParams.get('key') || '';
+      const row = r.ok && r.feed.sessions.find((x) => x && `${x.provider}:${x.sessionId}` === key);
+      const result = !r.ok ? { ok: false, reason: r.reason } : !row ? { ok: false, reason: 'unknown-session' } : closeSession(row);
+      res.writeHead(result.ok ? 200 : 400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(result));
     } else if (url.pathname === '/api/shutdown' && req.method === 'POST') {
       // Only our CLI sends this header; a web page can't add a custom header
       // to a cross-site request without a CORS preflight, which we never allow.
@@ -180,7 +225,8 @@ function createServer(watcher, opts, { onShutdown, onRestart } = {}) {
       );
     } else if (url.pathname === '/api/ping') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ app: 'whatsmyagentdoing' }));
+      // --managed: the app checks it reached the server it started itself
+      res.end(JSON.stringify(opts.managed ? { app: 'whatsmyagentdoing', instance: opts.managed } : { app: 'whatsmyagentdoing' }));
     } else if (url.pathname === '/events') {
       res.writeHead(200, {
         'content-type': 'text/event-stream',

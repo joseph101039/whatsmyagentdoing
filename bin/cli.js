@@ -8,6 +8,7 @@ const { DemoWatcher } = require('../src/demo');
 const scenes = require('../src/scenes');
 const updater = require('../src/update');
 const { createServer, snapshot } = require('../src/server');
+const { FeedSource } = require('../src/agentdeck');
 const pkg = require('../package.json');
 
 const HELP = `whatsmyagentdoing ${pkg.version}
@@ -27,6 +28,10 @@ Options:
   --scenes          List 3D scenes (installed and downloadable)
   --scene <id>      Download a scene if needed and open the office in it
   --remove-scene <id>  Delete a downloaded scene
+  --agentdeck <file>   Take who is running from AgentDeck's live.json (or AGENTDECK_LIVE);
+                       falls back to the logs while it is stale
+  --managed <id>       Run under an app: no browser, never reuse a running dashboard,
+                       take the next free port; /api/ping reports <id>
   -h, --help        Show this help
 
 Reads (never writes):
@@ -36,7 +41,8 @@ Reads (never writes):
 Override with CLAUDE_CONFIG_DIR / CODEX_HOME / GEMINI_CLI_HOME.`;
 
 function parseArgs(argv) {
-  const o = { port: 4545, hours: 24, open: true, privacy: false, json: false, demo: false, stop: false, scenes: false, scene: null, removeScene: null, update: false };
+  const o = { port: 4545, hours: 24, open: true, privacy: false, json: false, demo: false, stop: false, scenes: false, scene: null, removeScene: null, update: false,
+    agentdeck: process.env.AGENTDECK_LIVE || null, managed: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-h' || a === '--help') { console.log(HELP); process.exit(0); }
@@ -55,9 +61,16 @@ function parseArgs(argv) {
     else if (a === '--scene') o.scene = argv[++i];
     else if (a.startsWith('--scene=')) o.scene = a.slice(8);
     else if (a === '--remove-scene') o.removeScene = argv[++i];
+    else if (a === '--agentdeck') o.agentdeck = argv[++i];
+    else if (a.startsWith('--agentdeck=')) o.agentdeck = a.slice(12);
+    else if (a === '--managed') o.managed = argv[++i];
+    else if (a.startsWith('--managed=')) o.managed = a.slice(10);
     else { console.error(`Unknown option: ${a}\n\n${HELP}`); process.exit(1); }
   }
   if (!Number.isFinite(o.port) || !Number.isFinite(o.hours)) { console.error(HELP); process.exit(1); }
+  if (o.managed === undefined || o.agentdeck === undefined) { console.error(HELP); process.exit(1); }
+  if (o.managed) o.open = false;
+  if (o.agentdeck) o.feed = new FeedSource(o.agentdeck);
   return o;
 }
 
@@ -168,7 +181,8 @@ async function main() {
   }
 
   const query = o.scene ? `/?view=office&quality=high&scene=${encodeURIComponent(o.scene)}` : '';
-  if (await alreadyRunning(o.port)) {
+  // An app supervising us must get its own server, never someone else's.
+  if (!o.managed && await alreadyRunning(o.port)) {
     const url = `http://localhost:${o.port}${query}`;
     console.log(`Already running at ${url}`);
     await printUpdateHint();
@@ -206,7 +220,7 @@ async function main() {
       if (o.open) openBrowser(openUrl);
     });
   };
-  listen(o.port, 10);
+  listen(o.port, o.managed ? 100 : 10);
 }
 
 main();
