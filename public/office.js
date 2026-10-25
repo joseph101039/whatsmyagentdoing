@@ -658,7 +658,9 @@
       choice.taken = p.key;
       p.poi = choice;
       p.until = Infinity; // set on arrival
-      p.stay = (choice.act === 'pingpong' ? rand(15, 30) : rand(8, 20)) * 1000;
+      // Long stays keep most of the office still, so frames can drop to the
+      // calm rate; two-player games run at 30fps, so those stay short.
+      p.stay = (choice.pair ? rand(15, 30) : rand(30, 90)) * 1000;
       this.goTo(p, choice);
     }
 

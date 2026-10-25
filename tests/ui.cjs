@@ -102,15 +102,16 @@ async function drawnLogos(target) {
    const mk=(i,status)=>({key:`claude:off${i}`,id:`off${i}`,agent:'claude',project:'p',status,lastEventAt:now-i,startedAt:now});
    office.update([...Array(10)].map((_,i)=>mk(i,i%2?'done':'idle')));
    const seats=office.plan.desks.map(d=>d.seat);
-   let onDesk=0;
+   let onDesk=0,badStay=0;
    for(let round=0;round<40;round++) for(const p of office.people.values()){
     p.path=[];p.until=0;office.wander(p,Date.now());
     if(p.poi&&seats.some(q=>Math.hypot(q.x-p.poi.x,q.y-p.poi.y)<0.05)) onDesk++;
+    if(p.poi&&!(p.poi.pair?p.stay>=15000&&p.stay<=30000:p.stay>=30000&&p.stay<=90000)) badStay++;
    }
-   return {onDesk,offDuty:office.offDuty};
+   return {onDesk,badStay,offDuty:office.offDuty};
   });
-  assert.deepEqual(offDesk,{onDesk:0,offDuty:3});
-  check('done and idle agents never take a desk; past the wanderer cap they count as not shown');
+  assert.deepEqual(offDesk,{onDesk:0,badStay:0,offDuty:3});
+  check('done and idle agents never take a desk, linger 30-90s (games 15-30s); past the wanderer cap they count as not shown');
   const deskless=await page.evaluate(()=>{
    const now=Date.now();
    office.plan.fixed=true;office.plan.desks=office.plan.desks.slice(0,1);office.deskOf.clear();
