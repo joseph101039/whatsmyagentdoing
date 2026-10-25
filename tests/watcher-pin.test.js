@@ -75,6 +75,10 @@ test('codex full walk runs at most once a minute and backs off', () => {
   assert.equal(w.codexMiss.get('ghost').delay, 60000);
   w.findPinnedCodex(1_000_000 + 61000);
   assert.equal(w.codexMiss.get('ghost').delay, 120000);
+  // past 16 minutes of backoff it is given up on
+  w.codexMiss.set('ghost', { until: 0, delay: 16 * 60000 });
+  w.findPinnedCodex(1_000_000 + 200000);
+  assert.equal(w.codexMiss.get('ghost').until, Infinity);
 });
 
 test('unpinned old file is evicted', () => {

@@ -227,8 +227,10 @@ async function main() {
 
   // The app stops us on a clean quit; when it is killed or crashes instead,
   // we get reparented, and must not linger and pile up on later ports.
+  // The app's pid comes from the app itself: reading our own ppid at this
+  // point could already be launchd's if the app died during startup.
   if (o.managed) {
-    const parent = process.ppid;
+    const parent = Number(process.env.AGENTDECK_APP_PID) || process.ppid;
     setInterval(() => {
       if (process.ppid !== parent) { watcher.stop(); server.close(); process.exit(0); }
     }, 2000).unref();

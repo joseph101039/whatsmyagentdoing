@@ -151,7 +151,8 @@ class Watcher extends EventEmitter {
   // Codex rollouts live in date folders and only recent days are walked; a
   // pinned one from an older day needs one walk of the whole tree. The walk
   // is synchronous, so: at most one a minute, and an id that isn't there
-  // backs off 1, 2, 4… up to 30 minutes (its rollout may never exist).
+  // backs off 1, 2, 4… 16 minutes, then is given up on until it is pinned
+  // again (its rollout may never exist).
   findPinnedCodex(now) {
     const inWindow = new Set(this.candidates.filter((c) => c.agent === 'codex').map((c) => c.id));
     const missing = [];
@@ -173,8 +174,8 @@ class Watcher extends EventEmitter {
     for (const id of missing) {
       const file = this.codexPaths.get(id);
       if (file) { this.pinnedExtra.set(`codex:${id}`, { agent: 'codex', file, id }); this.codexMiss.delete(id); continue; }
-      const delay = Math.min(((this.codexMiss.get(id) || {}).delay || 30000) * 2, 30 * 60000);
-      this.codexMiss.set(id, { until: now + delay, delay });
+      const delay = ((this.codexMiss.get(id) || {}).delay || 30000) * 2;
+      this.codexMiss.set(id, { until: delay > 16 * 60000 ? Infinity : now + delay, delay });
     }
   }
 

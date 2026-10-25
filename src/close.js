@@ -78,10 +78,11 @@ function precheck(row) {
   return null;
 }
 
-// Install layouts whose executable isn't simply named after the agent.
+// Install layouts whose executable isn't simply named after the agent,
+// anchored at the end so only the agent's own file matches.
 const AGENT_PATHS = {
-  claude: ['/claude/versions/', '/@anthropic-ai/claude-code/'],
-  codex: ['/@openai/codex/'],
+  claude: [/\/claude\/versions\/[^/]+$/, /\/node_modules\/@anthropic-ai\/claude-code\/cli\.m?js$/],
+  codex: [/\/node_modules\/@openai\/codex\/bin\/codex(\.m?js)?$/],
 };
 const NODES = new Set(['node', 'bun']);
 
@@ -92,7 +93,7 @@ const NODES = new Set(['node', 'bun']);
 // are not the agent.
 function isAgentCommand(command, provider) {
   const words = String(command).split(/\s+/);
-  const isAgent = (w) => !!w && (path.basename(w) === provider || (AGENT_PATHS[provider] || []).some((p) => w.includes(p)));
+  const isAgent = (w) => !!w && (path.basename(w) === provider || (AGENT_PATHS[provider] || []).some((re) => re.test(w)));
   if (isAgent(words[0])) return true;
   return NODES.has(path.basename(words[0] || '')) && isAgent(words[1]);
 }

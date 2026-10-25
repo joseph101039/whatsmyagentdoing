@@ -83,7 +83,7 @@ function view(s, now, { privacy }, deck, procs) {
     out.prompt = out.reply = out.title = null;
     if (out.activity) out.activity = out.activity.split(/[:\s]/)[0];
     // Claude's registry reason is free text that can quote a command
-    if (out.waitingReason) out.waitingReason = out.waitingReason.split(/[:\s]/)[0];
+    out.waitingReason = null;
   }
   return out;
 }

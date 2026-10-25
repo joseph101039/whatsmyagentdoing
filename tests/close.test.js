@@ -52,6 +52,9 @@ test('isAgentCommand wants the agent executable itself', () => {
   assert.ok(isAgentCommand('/Users/me/.codex/packages/standalone/releases/0.163.0/bin/codex exec hi', 'codex'));
   assert.ok(!isAgentCommand('/Users/me/.codex/packages/standalone/releases/0.163.0/bin/codex-code-mode-host', 'codex'));
   assert.ok(!isAgentCommand('grep codex', 'codex'));
+  // the install-layout exceptions match the agent's own file only
+  assert.ok(!isAgentCommand('/x/claude/versions/2.1/evil', 'claude'));
+  assert.ok(!isAgentCommand('node /tmp/node_modules/@openai/codex/scripts/other.js', 'codex'));
 });
 
 test('canClose accepts versioned claude binary', () => {
