@@ -492,10 +492,18 @@
       // Fill the desks that face us first so more faces and screens show.
       const desks = this.plan.desks;
       const order = desks.map((d, i) => i).sort((a, b) => (desks[a].side === 's') - (desks[b].side === 's') || a - b);
-      for (const s of [...working].sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0))) {
+      const parentKey = (s) => (s.subagent && s.parentId ? `${s.spawnedBy || s.agent}:${s.parentId}` : null);
+      const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+      // Parents are seated first so a subagent can take the free desk
+      // closest to its parent's; ties keep the front-row-first order.
+      const queue = [...working].sort((a, b) => (parentKey(a) != null) - (parentKey(b) != null) || (a.startedAt || 0) - (b.startedAt || 0));
+      for (const s of queue) {
         if (this.deskOf.has(s.key)) continue;
-        const i = order.find((n) => !used.has(n));
-        if (i == null) continue;
+        const free = order.filter((n) => !used.has(n));
+        if (!free.length) continue;
+        const pk = parentKey(s);
+        const near = pk != null && this.deskOf.has(pk) ? desks[this.deskOf.get(pk)].seat : null;
+        const i = near ? free.reduce((best, n) => (dist(desks[n].seat, near) < dist(desks[best].seat, near) ? n : best)) : free[0];
         this.deskOf.set(s.key, i);
         used.add(i);
       }

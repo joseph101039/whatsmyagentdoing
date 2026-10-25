@@ -80,6 +80,21 @@ async function drawnLogos(target) {
   await openSettings(page);await page.check('#showSub');
   assert.equal((await badges(page)).length,5);
   check('2D badges identify all three providers and subagents without duplicate activity badges');
+  const seatGap=await page.evaluate(()=>{
+   const now=Date.now();
+   const mk=(key,extra)=>({key,id:key.split(':')[1],agent:key.split(':')[0],project:key,status:'tool',lastEventAt:now,startedAt:now,...extra});
+   office.update([
+    mk('claude:parent',{startedAt:now-4000}),
+    mk('claude:fill1',{startedAt:now-3000}),mk('gemini:fill2',{startedAt:now-2000}),
+    mk('codex:child',{startedAt:now-1000,subagent:true,parentId:'parent',spawnedBy:'claude'}),
+   ]);
+   const seat=(k)=>office.plan.desks[office.deskOf.get(k)].seat;
+   const a=seat('claude:parent'),b=seat('codex:child');
+   return Math.hypot(a.x-b.x,a.y-b.y);
+  });
+  await page.evaluate(s=>onData({now:Date.now(),sessions:s}),sessions);
+  assert.ok(seatGap<3,`subagent sits ${seatGap.toFixed(2)} from its parent`);
+  check('a subagent takes the free desk nearest its parent');
   await openSettings(page);await page.uncheck('#showAgent');assert.equal((await badges(page)).length,0);
   assert.equal(await page.locator('#agentLegend').isVisible(),false);
   await page.reload();await stable(page);assert.equal(await page.locator('#showAgent').isChecked(),false);
