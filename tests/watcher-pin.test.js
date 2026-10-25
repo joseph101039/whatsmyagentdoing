@@ -91,3 +91,16 @@ test('unpinned old file is evicted', () => {
   w.tick();
   assert.ok(!ids(w).includes('claude:evict-me'));
 });
+
+test('recently written log with old events is not re-read every tick', () => {
+  // events 3 days old, file touched just now
+  claudeLog('touched', 3 * DAY);
+  const f = path.join(BASE, 'claude', 'projects', '-p-demo', 'touched.jsonl');
+  fs.utimesSync(f, new Date(), new Date());
+  const w = new Watcher({ hours: 24 });
+  let opens = 0;
+  const open = w.open.bind(w);
+  w.open = (c, st) => { if (c.id === 'touched') opens++; return open(c, st); };
+  for (let i = 0; i < 5; i++) w.tick();
+  assert.equal(opens, 1);
+});

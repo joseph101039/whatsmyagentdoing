@@ -131,6 +131,9 @@ class Watcher extends EventEmitter {
     this.codexIndexMtime = 0;
     this.lastScan = 0;
     this.candidates = [];
+    // Files last seen older than the window: most of the history. They are
+    // re-checked on the 5s directory scan only, not stat'ed every second.
+    this.cold = new Set();
     // Sessions another source (AgentDeck) knows are still running: tracked
     // whatever their age, so a session idle for days still shows up.
     this.pinned = new Set();     // "agent:id"
@@ -228,9 +231,12 @@ class Watcher extends EventEmitter {
     if (this.loadGeminiProjects()) changed = true;
 
     // Directory walk every 5s; stat known files every tick.
+    let scanned = false;
     if (now - this.lastScan > 5000) {
       this.lastScan = now;
       this.candidates = [...claudeFiles(), ...codexFiles(since), ...geminiFiles()];
+      this.cold.clear();
+      scanned = true;
     }
     if (this.pinned.size) this.findPinnedCodex(now);
 
@@ -238,8 +244,10 @@ class Watcher extends EventEmitter {
       // A log we can't read (permissions, deleted mid-read…) is skipped and
       // retried a minute later; it must never take the server down.
       if ((this.failed.get(c.file) || 0) > now) continue;
+      const pinned = this.pinned.has(`${c.agent}:${c.id}`);
+      if (!scanned && !pinned && this.cold.has(c.file)) continue;
       try {
-        if (this.track(c, this.pinned.has(`${c.agent}:${c.id}`) ? -Infinity : since)) changed = true;
+        if (this.track(c, pinned ? -Infinity : since)) changed = true;
       } catch {
         this.failed.set(c.file, now + 60000);
         this.trackers.delete(c.file);
@@ -248,7 +256,11 @@ class Watcher extends EventEmitter {
 
     for (const [file, t] of this.trackers) {
       if (this.pinned.has(`${t.session.agent}:${t.session.id}`)) continue;
-      if ((t.session.lastEventAt || t.session.mtime || 0) < since) { this.trackers.delete(file); changed = true; }
+      // Same test as track() uses to open: a file whose last event is old
+      // but that was written recently (Claude appends untimestamped metadata
+      // to idle transcripts) would otherwise be evicted and re-read whole on
+      // every tick.
+      if (Math.max(t.session.lastEventAt || 0, t.session.mtime || 0) < since) { this.trackers.delete(file); changed = true; }
     }
 
     if (changed) this.emit('change');
@@ -260,7 +272,7 @@ class Watcher extends EventEmitter {
     if (!st) return false;
     const t = this.trackers.get(c.file);
     if (!t) {
-      if (st.mtimeMs < since) return false;
+      if (st.mtimeMs < since) { this.cold.add(c.file); return false; }
       this.open(c, st);
       return true;
     }
