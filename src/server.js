@@ -13,7 +13,7 @@ const STATIC = {
   '/i18n.js': ['i18n.js', 'text/javascript; charset=utf-8'],
   '/popout.js': ['popout.js', 'text/javascript; charset=utf-8'],
 };
-const TYPES = { '.js': 'text/javascript; charset=utf-8', '.glb': 'model/gltf-binary', '.png': 'image/png', '.json': 'application/json' };
+const TYPES = { '.js': 'text/javascript; charset=utf-8', '.glb': 'model/gltf-binary', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json' };
 // 3D models, served as-is (3D view only).
 const MOUNTS = { '/assets/': path.join(__dirname, '..', 'assets') };
 const scenes = require('./scenes');
@@ -88,6 +88,27 @@ function view(s, now, { privacy }, deck, procs) {
   return out;
 }
 
+// A parent whose turn ended (done/idle) while subagents it started are still
+// busy is waiting on them, not finished: show it as running a tool with a
+// count, so it keeps its desk and counts as working. Children are counted from
+// their own view() statuses before any parent changes, so nested or cyclic
+// links can't hold each other up. Needs-you and interrupted states are kept,
+// and a parent whose process ended stays gone.
+function markDelegating(sessions) {
+  const busy = new Map();
+  for (const c of sessions) {
+    if (!c.subagent || !c.parentId || c.alive === false || !ACTIVE.has(c.status)) continue;
+    const parentKey = `${c.spawnedBy || c.agent}:${c.parentId}`;
+    if (parentKey === c.key) continue;
+    busy.set(parentKey, (busy.get(parentKey) || 0) + 1);
+  }
+  return sessions.map((s) => {
+    const n = busy.get(s.key);
+    if (!n || s.alive === false || (s.status !== 'done' && s.status !== 'idle')) return s;
+    return { ...s, status: 'tool', activity: null, delegating: n };
+  });
+}
+
 // The language the user writes their prompts in (recent sessions first);
 // the page uses it as the default UI language.
 function promptLanguage(raw) {
@@ -134,7 +155,7 @@ function snapshot(watcher, opts) {
     const pids = [...deck.values()].filter((x) => isPresent(x, now) && !precheck(x)).map((x) => x.agentPid);
     procs = inspectCachedMany(pids, now);
   }
-  const sessions = raw.map((s) => view(s, now, opts, deck, procs));
+  const sessions = markDelegating(raw.map((s) => view(s, now, opts, deck, procs)));
   sessions.sort((a, b) => (b.lastEventAt || 0) - (a.lastEventAt || 0));
   const out = { now, lang: opts.demo ? null : promptLanguage(raw), sessions };
   if (feed) out.feed = feed;
@@ -262,4 +283,4 @@ function createServer(watcher, opts, { onShutdown, onRestart } = {}) {
   return server;
 }
 
-module.exports = { createServer, snapshot };
+module.exports = { createServer, snapshot, markDelegating };

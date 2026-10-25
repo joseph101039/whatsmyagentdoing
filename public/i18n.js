@@ -27,6 +27,7 @@
       close: 'Close', confirmClose: 'Confirm close?', closed: 'Closed ✓', closeFailed: "Couldn't close", ended: 'Ended',
       spawnedBy: (p) => `↳ started by ${p}`, feedDown: (r) => `AgentDeck isn't running — guessing from logs for now (${r})`,
       doneNote: (p) => `${p} is done`,
+      delegating: (n) => `waiting for ${n} subagent${n > 1 ? 's' : ''}`,
     },
     'zh-TW': {
       settings: "設定", scene: "場景", agents: "顯示哪些 Agent", language: "語言",
@@ -52,6 +53,7 @@
       close: '關閉', confirmClose: '確認關閉？', closed: '已關閉 ✓', closeFailed: '關閉失敗', ended: '已結束',
       spawnedBy: (p) => `↳ 由 ${p} 叫起`, feedDown: (r) => `AgentDeck 未在執行，暫以 log 推測（${r}）`,
       doneNote: (p) => `${p} 完成了`,
+      delegating: (n) => `等 ${n} 個 subagent`,
     },
     'zh-CN': {
       settings: "设置", scene: "场景", agents: "显示哪些 Agent", language: "语言",
@@ -77,6 +79,7 @@
       close: '关闭', confirmClose: '确认关闭？', closed: '已关闭 ✓', closeFailed: '关闭失败', ended: '已结束',
       spawnedBy: (p) => `↳ 由 ${p} 启动`, feedDown: (r) => `AgentDeck 未在运行，暂以日志推测（${r}）`,
       doneNote: (p) => `${p} 完成了`,
+      delegating: (n) => `等 ${n} 个 subagent`,
     },
     ja: {
       settings: "設定", scene: "シーン", agents: "エージェント", language: "言語",
@@ -102,6 +105,7 @@
       close: '終了', confirmClose: '終了しますか？', closed: '終了しました ✓', closeFailed: '終了できませんでした', ended: '終了済み',
       spawnedBy: (p) => `↳ ${p} から起動`, feedDown: (r) => `AgentDeck が動いていません — ログから推測しています（${r}）`,
       doneNote: (p) => `${p} が完了しました`,
+      delegating: (n) => `サブエージェント ${n} 件を待機中`,
     },
     ko: {
       settings: "설정", scene: "장면", agents: "에이전트", language: "언어",
@@ -127,6 +131,7 @@
       close: '종료', confirmClose: '종료할까요?', closed: '종료됨 ✓', closeFailed: '종료하지 못했습니다', ended: '끝남',
       spawnedBy: (p) => `↳ ${p}에서 시작됨`, feedDown: (r) => `AgentDeck가 실행 중이 아닙니다 — 로그로 추정합니다 (${r})`,
       doneNote: (p) => `${p} 완료`,
+      delegating: (n) => `서브에이전트 ${n}개 대기 중`,
     },
     es: {
       settings: "Ajustes", scene: "Escenario", agents: "Agentes", language: "Idioma",
@@ -152,6 +157,7 @@
       close: 'Cerrar', confirmClose: '¿Confirmar cierre?', closed: 'Cerrada ✓', closeFailed: 'No se pudo cerrar', ended: 'Terminadas',
       spawnedBy: (p) => `↳ iniciada por ${p}`, feedDown: (r) => `AgentDeck no está en ejecución — estimando a partir de los registros (${r})`,
       doneNote: (p) => `${p} terminó`,
+      delegating: (n) => `esperando ${n} subagente${n > 1 ? 's' : ''}`,
     },
     fr: {
       settings: "Réglages", scene: "Scène", agents: "Agents", language: "Langue",
@@ -177,6 +183,7 @@
       close: 'Fermer', confirmClose: 'Confirmer la fermeture ?', closed: 'Fermée ✓', closeFailed: 'Impossible de fermer', ended: 'Terminées',
       spawnedBy: (p) => `↳ lancée par ${p}`, feedDown: (r) => `AgentDeck ne tourne pas — estimation à partir des journaux (${r})`,
       doneNote: (p) => `${p} a terminé`,
+      delegating: (n) => `attend ${n} sous-agent${n > 1 ? 's' : ''}`,
     },
     de: {
       settings: "Einstellungen", scene: "Szene", agents: "Agents", language: "Sprache",
@@ -202,6 +209,7 @@
       close: 'Beenden', confirmClose: 'Wirklich beenden?', closed: 'Beendet ✓', closeFailed: 'Konnte nicht beenden', ended: 'Beendet',
       spawnedBy: (p) => `↳ gestartet von ${p}`, feedDown: (r) => `AgentDeck läuft nicht — Schätzung aus den Logs (${r})`,
       doneNote: (p) => `${p} ist fertig`,
+      delegating: (n) => `wartet auf ${n} Subagent${n > 1 ? 's' : ''}`,
     },
     pt: {
       settings: "Configurações", scene: "Cenário", agents: "Agentes", language: "Idioma",
@@ -227,6 +235,7 @@
       close: 'Fechar', confirmClose: 'Confirmar fechamento?', closed: 'Fechada ✓', closeFailed: 'Não foi possível fechar', ended: 'Encerradas',
       spawnedBy: (p) => `↳ iniciada por ${p}`, feedDown: (r) => `AgentDeck não está em execução — estimando pelos registros (${r})`,
       doneNote: (p) => `${p} terminou`,
+      delegating: (n) => `aguardando ${n} subagente${n > 1 ? 's' : ''}`,
     },
   };
 
@@ -237,7 +246,7 @@
       statusH: 'Statuses',
       status: {
         thinking: 'Working on a turn, no tool running yet. Sits at a desk.',
-        tool: 'Running a tool (shell, edit, search…). The tool name shows above the head. Sits at a desk.',
+        tool: 'Running a tool (shell, edit, search…). The tool name shows above the head. Sits at a desk. A session whose turn ended while subagents it started are still busy also shows here, as “waiting for N subagents”.',
         typing: 'Writing the reply. Sits at a desk.',
         waiting: 'Needs you: a permission prompt or a question. Stands up and waves with a “!”.',
         error: 'The last turn failed. Stands up with a “!”.',
@@ -263,7 +272,7 @@
         'Name tag: the session name (from /rename or its summary), else the project folder. The dot and outline are the status colour.',
         'Above the head: purple dots = thinking, ⚙ name = running a tool, pink bubble = writing, ! = needs you, ✓ = just finished, z z z = idle.',
         'Hover someone to see details; they stop walking while you do. Click to pin the details (they stay put too); Esc or a click on an empty spot in the office unpins.',
-        'Subagents are smaller and show only their agent badge until hovered. “↳ started by …” names the parent. A subagent takes the free desk nearest its parent when both have a desk.',
+        'Subagents are smaller and show only their agent badge until hovered. “↳ started by …” names the parent. A subagent takes the free desk nearest its parent when both have a desk. A parent waiting on background subagents keeps its desk; if the parent process has exited, only the subagent remains. Gemini subagents without a parent link cannot do this.',
       ],
       actionsH: 'Actions',
       actions: [
@@ -276,7 +285,7 @@
       statusH: '狀態',
       status: {
         thinking: '正在處理這一輪，還沒跑工具。坐在桌前。',
-        tool: '正在跑工具（shell、改檔、搜尋…），頭上顯示工具名。坐在桌前。',
+        tool: '正在跑工具（shell、改檔、搜尋…），頭上顯示工具名。坐在桌前。主 agent 這一輪結束但它叫起的 subagent 還在跑時，也算在這裡，顯示「等 N 個 subagent」。',
         typing: '正在寫回覆。坐在桌前。',
         waiting: '需要你：權限確認或問你問題。站起來揮手，頭上「!」。',
         error: '上一輪出錯。站起來，頭上「!」。',
@@ -302,7 +311,7 @@
         '名牌：session 名稱（/rename 或摘要標題），沒有就顯示專案資料夾。左邊圓點和外框是狀態色。',
         '頭上：紫色三點 = 思考、⚙ 工具名 = 執行中、桃紅泡泡 = 寫回覆、! = 需要你、✓ = 剛做完、z z z = 閒置。',
         '滑鼠移到人身上看詳情，那個人會停下腳步；點一下把詳情釘住（人也停著），Esc 或點辦公室空白處取消。',
-        '子 agent 比較小，平常只顯示 agent 圖示，hover 才看到名牌；「↳ started by …」是父 session。父子都有桌子時，子 agent 坐在離父最近的空桌。',
+        '子 agent 比較小，平常只顯示 agent 圖示，hover 才看到名牌；「↳ started by …」是父 session。父子都有桌子時，子 agent 坐在離父最近的空桌。主 agent 在等背景 subagent 時保留座位；主 agent 行程已結束的話只剩子 agent。沒有父連結的 Gemini 子 agent 無法這樣判斷。',
       ],
       actionsH: '操作',
       actions: [

@@ -216,6 +216,16 @@
   .conn { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: var(--error); color: #fff; padding: 6px 14px; border-radius: 999px; font-size: 12.5px; display: none; }
   .conn.on { display: block; }
 
+  /* Office view fills the window: header and legends keep their height and the
+     office takes the rest, so no page scrollbar unless the window is shorter
+     than the office minimum. Bottom padding leaves room for the fixed .ver. */
+  body.fit { padding-bottom: 40px; }
+  body.fit .wrap { height: calc(100dvh - 64px); display: flex; flex-direction: column; }
+  body.fit .wrap > :not(#officeWrap) { flex: none; }
+  body.fit #officeWrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  body.fit .office { flex: 1; height: auto; min-height: 300px; }
+  body.fit #main:empty { display: none; }
+
   /* The PiP iframe owns its animation clock, layout, and pointer events. */
   body.pip { padding: 8px; }
   body.pip .wrap { height: calc(100dvh - 16px); display: flex; flex-direction: column; }
@@ -263,9 +273,9 @@
             <span class="setting-label" id="filterLabel" data-t="agents"></span>
             <div class="seg" id="agentSeg" role="group" aria-labelledby="filterLabel">
               <button data-v="all" class="on" data-t="all"></button>
-              <button data-v="claude"><img class="agent-logo" src="/assets/agents/claude.png" alt="">Claude</button>
-              <button data-v="codex"><img class="agent-logo" src="/assets/agents/codex.png" alt="">Codex</button>
-              <button data-v="gemini"><img class="agent-logo" src="/assets/agents/gemini.png" alt="">Gemini</button>
+              <button data-v="claude"><img class="agent-logo" src="/assets/agents/claude.svg" alt="">Claude</button>
+              <button data-v="codex"><img class="agent-logo" src="/assets/agents/codex.svg" alt="">Codex</button>
+              <button data-v="gemini"><img class="agent-logo" src="/assets/agents/gemini.svg" alt="">Gemini</button>
             </div>
             <div class="setting-toggles">
               <label class="tog"><input type="checkbox" id="showSub"> <span data-t="subagents"></span></label>
@@ -331,7 +341,7 @@ function applyLang(code) {
     .map((k) => `<span data-s="${k}"><span class="dot" style="color:var(--s)"></span>${L[k]}</span>`).join('');
   const sel = document.getElementById('langSel');
   if (sel) sel.options[0].textContent = `🌐 ${L.auto}`;
-  if (typeof office !== 'undefined' && office) office.offDutyLabel = L.notShown;
+  if (typeof office !== 'undefined' && office) { office.offDutyLabel = L.notShown; office.delegatingLabel = L.delegating; }
   if (typeof syncControls === 'function') syncControls();
   if (typeof renderSceneSel === 'function') renderSceneSel();
   if (typeof renderVersion === 'function') renderVersion();
@@ -421,7 +431,7 @@ function ago(t, now) {
 }
 
 function timeLabel(s, now) {
-  if ((ACTIVE.has(s.status) || s.status === 'waiting') && s.turnStartedAt) return dur(now - s.turnStartedAt);
+  if ((ACTIVE.has(s.status) || s.status === 'waiting') && !s.delegating && s.turnStartedAt) return dur(now - s.turnStartedAt);
   return s.lastEventAt ? ago(s.lastEventAt, now) : '';
 }
 
@@ -461,11 +471,12 @@ function spawnedLine(s) {
 function card(s, now) {
   const project = s.project || (s.cwd ? s.cwd : '—');
   const title = s.title && s.title !== project ? `<div class="title" title="${esc(s.title)}">${esc(s.title)}</div>` : '';
-  const activity = s.status === 'waiting' && s.waitingReason ? s.waitingReason : s.activity;
+  const activity = s.status === 'waiting' && s.waitingReason ? s.waitingReason : s.delegating ? L.delegating(s.delegating) : s.activity;
   const act = activity ? `<span class="act" title="${esc(activity)}">${esc(activity)}</span>` : '';
   const showText = !s.subagent || ACTIVE.has(s.status);
   const q = showText && s.prompt ? `<div class="q" title="${esc(s.prompt)}">${esc(s.prompt)}</div>` : '';
-  const r = showText && s.reply && !ACTIVE.has(s.status) ? `<div class="r" title="${esc(s.reply)}">${esc(s.reply)}</div>` : '';
+  // A parent waiting on subagents has already replied; keep showing it.
+  const r = showText && s.reply && (!ACTIVE.has(s.status) || s.delegating) ? `<div class="r" title="${esc(s.reply)}">${esc(s.reply)}</div>` : '';
   const err = s.error ? `<div class="err">${esc(s.error)}</div>` : '';
   const sub = s.subagent ? ` · ${L.sub}` : '';
   return `
@@ -520,6 +531,7 @@ function render() {
   // The office decides who sits at a desk and who wanders around.
   const officeList = all;
   const poppedOut = !!popout?.win;
+  document.body.classList.toggle('fit', !PIP && officeMode && !poppedOut);
   // Wait for the first snapshot so people start at their places instead of
   // all walking in through the door.
   if (office && state.loaded) {
@@ -604,13 +616,19 @@ function onData(data) {
   state.flash.clear();
   for (const s of data.sessions) {
     const before = state.prev.get(s.key);
-    if (!first && before && ACTIVE.has(before) && (s.status === 'done' || s.status === 'waiting')) {
+    // A parent waiting on subagents arrives as tool + delegating. Its turn
+    // finished when it first entered that state, so completion is announced
+    // then and not again when it later settles to done; needs-you always is.
+    const wasWorking = before && ACTIVE.has(before.status);
+    const nowDone = s.status === 'done' || !!s.delegating;
+    const announce = s.status === 'waiting' ? wasWorking : nowDone && wasWorking && !before.delegating;
+    if (!first && announce) {
       state.flash.add(s.key);
       if (!PIP && !s.subagent && window.Notification && Notification.permission === 'granted') {
-        try { new Notification(s.status === 'done' ? L.doneNote(s.project || s.agent) : `${s.project || s.agent}: ${L.waiting}`, { body: s.reply || s.activity || '', tag: s.key }); } catch {}
+        try { new Notification(s.status === 'waiting' ? `${s.project || s.agent}: ${L.waiting}` : L.doneNote(s.project || s.agent), { body: s.reply || s.activity || '', tag: s.key }); } catch {}
       }
     }
-    state.prev.set(s.key, s.status);
+    state.prev.set(s.key, { status: s.status, delegating: !!s.delegating });
   }
   state.data = data;
   state.loaded = true;
@@ -636,7 +654,15 @@ document.addEventListener('keydown', (e) => {
     settingsMenu.querySelector('summary').focus();
   }
 });
-settingsMenu.addEventListener('toggle', () => { if (settingsMenu.open) hideTip(); });
+// The panel hangs below the toolbar, which moves down when the header wraps;
+// size it from where it actually starts so it never pushes the page to scroll.
+function fitSettingsPanel() {
+  if (!settingsMenu.open) return;
+  const panel = document.getElementById('settingsPanel');
+  panel.style.maxHeight = `${Math.max(0, innerHeight - panel.getBoundingClientRect().top - 16)}px`;
+}
+settingsMenu.addEventListener('toggle', () => { if (settingsMenu.open) { hideTip(); fitSettingsPanel(); } });
+addEventListener('resize', fitSettingsPanel);
 
 document.getElementById('qualSeg').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
@@ -790,6 +816,7 @@ async function makeOffice() {
   }
   office = mine;
   office.offDutyLabel = L.notShown;
+  office.delegatingLabel = L.delegating;
   render();
   const ok = await mine.ready;
   if (office !== mine) return;

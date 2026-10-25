@@ -18,13 +18,13 @@
     codex: ['#10a37f', '#2bb38f', '#0d8a6b', '#4cc3a0'],
     gemini: ['#4f7cf0', '#6b8ff5', '#3d66d6', '#8aa6f8'],
   };
-  // Official product icons, shared by both renderers and the page UI.
-  // Load once per page from the same origin so video capture stays readable.
+  // Flat provider badges (self-drawn SVG), shared by both renderers and the
+  // page UI. Same-origin files keep canvas and video capture readable.
   // Initials remain a fallback if an image cannot be loaded.
   const AGENT_BADGES = {
-    claude: { label: 'Claude', short: 'Cl', color: '#c96442', logo: '/assets/agents/claude.png' },
-    codex: { label: 'Codex', short: 'Cx', color: '#10a37f', logo: '/assets/agents/codex.png' },
-    gemini: { label: 'Gemini', short: 'G', color: '#4f7cf0', logo: '/assets/agents/gemini.png' },
+    claude: { label: 'Claude', short: 'Cl', color: '#c96442', logo: '/assets/agents/claude.svg' },
+    codex: { label: 'Codex', short: 'Cx', color: '#10a37f', logo: '/assets/agents/codex.svg' },
+    gemini: { label: 'Gemini', short: 'G', color: '#4f7cf0', logo: '/assets/agents/gemini.svg' },
   };
   for (const badge of Object.values(AGENT_BADGES)) {
     badge.image = new Image();
@@ -195,6 +195,7 @@
       this.showAgent = showAgent;
       this.compact = compact;
       this.offDutyLabel = 'not shown';
+      this.delegatingLabel = null; // (n) => text for a parent waiting on n subagents
       this.canvas = document.createElement('canvas');
       this.canvas.className = 'office-canvas';
       root.appendChild(this.canvas);
@@ -1365,8 +1366,13 @@
           for (let i = 0; i < n; i++) { c.beginPath(); c.arc(x + 7 + i * 8, y - 16, 2, 0, Math.PI * 2); c.fill(); }
           top = y - 24;
         } else if (st === 'tool') {
-          const tool = (s.activity || 'tool').split(/[:\s]/)[0];
-          top = pill('⚙ ' + tool, '#fff', col, y - 12);
+          if (s.delegating) {
+            const text = this.delegatingLabel ? this.delegatingLabel(s.delegating) : `${s.delegating} subagent`;
+            top = pill('⏳ ' + text, '#fff', col, y - 12);
+          } else {
+            const tool = (s.activity || 'tool').split(/[:\s]/)[0];
+            top = pill('⚙ ' + tool, '#fff', col, y - 12);
+          }
         } else if (st === 'waiting' || st === 'error') {
           const jump = Math.abs(Math.sin(t * 4)) * 4;
           c.fillStyle = col;
