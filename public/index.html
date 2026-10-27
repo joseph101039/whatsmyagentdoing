@@ -325,7 +325,7 @@ function applyLang(code) {
     .map((k) => `<span data-s="${k}"><span class="dot" style="color:var(--s)"></span>${L[k]}</span>`).join('');
   const sel = document.getElementById('langSel');
   if (sel) sel.options[0].textContent = `🌐 ${L.auto}`;
-  if (typeof office !== 'undefined' && office) { office.offDutyLabel = L.notShown; office.delegatingLabel = L.delegating; }
+  if (typeof office !== 'undefined' && office) { office.offDutyLabel = L.notShown; office.delegatingLabel = waitLabel; }
   if (typeof syncControls === 'function') syncControls();
   if (typeof renderSceneSel === 'function') renderSceneSel();
   if (typeof renderVersion === 'function') renderVersion();
@@ -405,8 +405,14 @@ function ago(t, now) {
   return rtf.format(Math.round(h / 24), 'day');
 }
 
+// What a session whose turn ended is still waiting on, or '' when nothing.
+function waitLabel(s) {
+  return [s.delegating && L.delegating(s.delegating), s.bgTasks && L.bgTasks(s.bgTasks)].filter(Boolean).join(' · ');
+}
+const isWaitingOn = (s) => !!(s.delegating || s.bgTasks);
+
 function timeLabel(s, now) {
-  if ((ACTIVE.has(s.status) || s.status === 'waiting') && !s.delegating && s.turnStartedAt) return dur(now - s.turnStartedAt);
+  if ((ACTIVE.has(s.status) || s.status === 'waiting') && !isWaitingOn(s) && s.turnStartedAt) return dur(now - s.turnStartedAt);
   return s.lastEventAt ? ago(s.lastEventAt, now) : '';
 }
 
@@ -446,12 +452,12 @@ function spawnedLine(s) {
 function card(s, now) {
   const project = s.project || (s.cwd ? s.cwd : '—');
   const title = s.title && s.title !== project ? `<div class="title" title="${esc(s.title)}">${esc(s.title)}</div>` : '';
-  const activity = s.status === 'waiting' && s.waitingReason ? s.waitingReason : s.delegating ? L.delegating(s.delegating) : s.activity;
+  const activity = s.status === 'waiting' && s.waitingReason ? s.waitingReason : isWaitingOn(s) ? waitLabel(s) : s.activity;
   const act = activity ? `<span class="act" title="${esc(activity)}">${esc(activity)}</span>` : '';
   const showText = !s.subagent || ACTIVE.has(s.status);
   const q = showText && s.prompt ? `<div class="q" title="${esc(s.prompt)}">${esc(s.prompt)}</div>` : '';
-  // A parent waiting on subagents has already replied; keep showing it.
-  const r = showText && s.reply && (!ACTIVE.has(s.status) || s.delegating) ? `<div class="r" title="${esc(s.reply)}">${esc(s.reply)}</div>` : '';
+  // A session waiting on subagents or background tasks has already replied; keep showing it.
+  const r = showText && s.reply && (!ACTIVE.has(s.status) || isWaitingOn(s)) ? `<div class="r" title="${esc(s.reply)}">${esc(s.reply)}</div>` : '';
   const err = s.error ? `<div class="err">${esc(s.error)}</div>` : '';
   const sub = s.subagent ? ` · ${L.sub}` : '';
   return `
@@ -602,11 +608,12 @@ function onData(data) {
   state.flash.clear();
   for (const s of data.sessions) {
     const before = state.prev.get(s.key);
-    // A parent waiting on subagents arrives as tool + delegating. Its turn
+    // A session waiting on subagents or background tasks arrives as tool +
+    // delegating / bgTasks. Its turn
     // finished when it first entered that state, so completion is announced
     // then and not again when it later settles to done; needs-you always is.
     const wasWorking = before && ACTIVE.has(before.status);
-    const nowDone = s.status === 'done' || !!s.delegating;
+    const nowDone = s.status === 'done' || isWaitingOn(s);
     const announce = s.status === 'waiting' ? wasWorking : nowDone && wasWorking && !before.delegating;
     if (!first && announce) {
       state.flash.add(s.key);
@@ -614,7 +621,7 @@ function onData(data) {
         try { new Notification(s.status === 'waiting' ? `${s.project || s.agent}: ${L.waiting}` : L.doneNote(s.project || s.agent), { body: s.reply || s.activity || '', tag: s.key }); } catch {}
       }
     }
-    state.prev.set(s.key, { status: s.status, delegating: !!s.delegating });
+    state.prev.set(s.key, { status: s.status, delegating: isWaitingOn(s) });
   }
   state.data = data;
   state.loaded = true;
@@ -814,7 +821,7 @@ async function makeOffice() {
   }
   office = mine;
   office.offDutyLabel = L.notShown;
-  office.delegatingLabel = L.delegating;
+  office.delegatingLabel = waitLabel;
   render();
   const ok = await mine.ready;
   if (office !== mine) return;

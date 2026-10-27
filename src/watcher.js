@@ -313,6 +313,10 @@ class Watcher extends EventEmitter {
       // Big log: head for metadata (cwd, title, model), tail for current state.
       this.feed(t, readRange(c.file, 0, HEAD_BYTES), true);
       t.partial = '';
+      // The head is for metadata only: a task started there may have ended
+      // in the skipped middle, so only the tail decides what is pending.
+      // Calls are kept, so a result that lands in the tail still matches.
+      delete session.bg;
       this.feed(t, readRange(c.file, st.size - TAIL_BYTES, st.size), false, true);
     }
     this.trackers.set(c.file, t);

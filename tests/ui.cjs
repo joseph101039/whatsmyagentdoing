@@ -173,6 +173,9 @@ async function drawnLogos(target) {
   assert.match(await card.locator('.act').innerText(),/waiting for 2 subagents/);
   assert.equal(await card.locator('.r').innerText(),'all set');
   assert.equal(await page.locator('section',{has:card}).locator('h2').evaluate(h=>h.textContent.startsWith(L.working)),true);
+  await page.evaluate(()=>{const now=Date.now();onData({now,sessions:[...state.data.sessions.filter(s=>s.key!=='claude:dp'),{key:'claude:dp',id:'dp',agent:'claude',project:'deleg',alive:true,status:'tool',delegating:1,bgTasks:2,reply:'polling',lastEventAt:now,startedAt:now}]});});
+  assert.match(await card.locator('.act').innerText(),/waiting for 1 subagent · waiting for 2 background tasks/);
+  assert.equal(await card.locator('.r').innerText(),'polling');
   await page.evaluate(s=>onData({now:Date.now(),sessions:s}),sessions);
   await page.click('#viewSeg [data-v=office]');await stable(page);
   check('a parent waiting on subagents keeps its desk, counts as working and notifies once');

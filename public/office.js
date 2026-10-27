@@ -195,7 +195,7 @@
       this.label = label || ((s) => s.project || s.agent);
       this.showAgent = showAgent;
       this.offDutyLabel = 'not shown';
-      this.delegatingLabel = null; // (n) => text for a parent waiting on n subagents
+      this.delegatingLabel = null; // (s) => text for a session waiting on subagents / background tasks
       this.canvas = document.createElement('canvas');
       this.canvas.className = 'office-canvas';
       root.appendChild(this.canvas);
@@ -1440,8 +1440,8 @@
           for (let i = 0; i < n; i++) { c.beginPath(); c.arc(x + 7 + i * 8, y - 16, 2, 0, Math.PI * 2); c.fill(); }
           top = y - 24;
         } else if (st === 'tool') {
-          if (s.delegating) {
-            const text = this.delegatingLabel ? this.delegatingLabel(s.delegating) : `${s.delegating} subagent`;
+          if (s.delegating || s.bgTasks) {
+            const text = this.delegatingLabel ? this.delegatingLabel(s) : `${s.delegating || s.bgTasks} waiting`;
             top = pill('⏳ ' + text, '#fff', col, y - 12);
           } else {
             const tool = (s.activity || 'tool').split(/[:\s]/)[0];

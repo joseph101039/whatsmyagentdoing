@@ -7,7 +7,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { newSession } = require('./parsers');
+const { newSession, pendingBackground } = require('./parsers');
 
 const FRESH_MS = 45000;          // AgentDeck rewrites the file at least every 15s
 const SHARED_DONE_MS = 5 * 60000; // plugin app-server never ends its sessions
@@ -169,10 +169,10 @@ function mergeSessions(logSessions, feed, parents = new Map(), now = Date.now())
     if (!FEED_AGENTS.has(log.agent)) { out.set(key, { ...log }); continue; }
     const s = { ...log, alive: false };
     // Claude's own subagents have no hook session; they count while their
-    // parent is present and they are visibly busy. Presence stays undecided
-    // (not true) so the clock-based decay still retires one that crashed
-    // mid-tool and will never log again.
-    if (log.subagent && log.parentId && LOG_ACTIVE.has(log.status)) {
+    // parent is present and they are visibly busy or waiting on a background
+    // task. Presence stays undecided (not true) so the clock-based decay
+    // still retires one that crashed mid-tool and will never log again.
+    if (log.subagent && log.parentId && (LOG_ACTIVE.has(log.status) || pendingBackground(log, now) > 0)) {
       const parent = out.get(`${log.agent}:${log.parentId}`);
       if (parent && parent.alive) delete s.alive;
     }

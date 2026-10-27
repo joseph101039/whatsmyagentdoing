@@ -23,6 +23,7 @@
       spawnedBy: (p) => `↳ started by ${p}`, feedDown: (r) => `AgentDeck isn't running — guessing from logs for now (${r})`,
       doneNote: (p) => `${p} is done`,
       delegating: (n) => `waiting for ${n} subagent${n > 1 ? 's' : ''}`,
+      bgTasks: (n) => `waiting for ${n} background task${n > 1 ? 's' : ''}`,
     },
     'zh-TW': {
       settings: "設定", scene: "場景", agents: "顯示哪些 Agent", language: "語言",
@@ -44,6 +45,7 @@
       spawnedBy: (p) => `↳ 由 ${p} 叫起`, feedDown: (r) => `AgentDeck 未在執行，暫以 log 推測（${r}）`,
       doneNote: (p) => `${p} 完成了`,
       delegating: (n) => `等 ${n} 個 subagent`,
+      bgTasks: (n) => `等 ${n} 個背景工作`,
     },
     'zh-CN': {
       settings: "设置", scene: "场景", agents: "显示哪些 Agent", language: "语言",
@@ -65,6 +67,7 @@
       spawnedBy: (p) => `↳ 由 ${p} 启动`, feedDown: (r) => `AgentDeck 未在运行，暂以日志推测（${r}）`,
       doneNote: (p) => `${p} 完成了`,
       delegating: (n) => `等 ${n} 个 subagent`,
+      bgTasks: (n) => `等 ${n} 个后台任务`,
     },
     ja: {
       settings: "設定", scene: "シーン", agents: "エージェント", language: "言語",
@@ -86,6 +89,7 @@
       spawnedBy: (p) => `↳ ${p} から起動`, feedDown: (r) => `AgentDeck が動いていません — ログから推測しています（${r}）`,
       doneNote: (p) => `${p} が完了しました`,
       delegating: (n) => `サブエージェント ${n} 件を待機中`,
+      bgTasks: (n) => `バックグラウンドタスク ${n} 件を待機中`,
     },
     ko: {
       settings: "설정", scene: "장면", agents: "에이전트", language: "언어",
@@ -107,6 +111,7 @@
       spawnedBy: (p) => `↳ ${p}에서 시작됨`, feedDown: (r) => `AgentDeck가 실행 중이 아닙니다 — 로그로 추정합니다 (${r})`,
       doneNote: (p) => `${p} 완료`,
       delegating: (n) => `서브에이전트 ${n}개 대기 중`,
+      bgTasks: (n) => `백그라운드 작업 ${n}개 대기 중`,
     },
     es: {
       settings: "Ajustes", scene: "Escenario", agents: "Agentes", language: "Idioma",
@@ -128,6 +133,7 @@
       spawnedBy: (p) => `↳ iniciada por ${p}`, feedDown: (r) => `AgentDeck no está en ejecución — estimando a partir de los registros (${r})`,
       doneNote: (p) => `${p} terminó`,
       delegating: (n) => `esperando ${n} subagente${n > 1 ? 's' : ''}`,
+      bgTasks: (n) => `esperando ${n} tarea${n > 1 ? 's' : ''} en segundo plano`,
     },
     fr: {
       settings: "Réglages", scene: "Scène", agents: "Agents", language: "Langue",
@@ -149,6 +155,7 @@
       spawnedBy: (p) => `↳ lancée par ${p}`, feedDown: (r) => `AgentDeck ne tourne pas — estimation à partir des journaux (${r})`,
       doneNote: (p) => `${p} a terminé`,
       delegating: (n) => `attend ${n} sous-agent${n > 1 ? 's' : ''}`,
+      bgTasks: (n) => `attend ${n} tâche${n > 1 ? 's' : ''} en arrière-plan`,
     },
     de: {
       settings: "Einstellungen", scene: "Szene", agents: "Agents", language: "Sprache",
@@ -170,6 +177,7 @@
       spawnedBy: (p) => `↳ gestartet von ${p}`, feedDown: (r) => `AgentDeck läuft nicht — Schätzung aus den Logs (${r})`,
       doneNote: (p) => `${p} ist fertig`,
       delegating: (n) => `wartet auf ${n} Subagent${n > 1 ? 's' : ''}`,
+      bgTasks: (n) => `wartet auf ${n} Hintergrundaufgabe${n > 1 ? 'n' : ''}`,
     },
     pt: {
       settings: "Configurações", scene: "Cenário", agents: "Agentes", language: "Idioma",
@@ -191,6 +199,7 @@
       spawnedBy: (p) => `↳ iniciada por ${p}`, feedDown: (r) => `AgentDeck não está em execução — estimando pelos registros (${r})`,
       doneNote: (p) => `${p} terminou`,
       delegating: (n) => `aguardando ${n} subagente${n > 1 ? 's' : ''}`,
+      bgTasks: (n) => `aguardando ${n} tarefa${n > 1 ? 's' : ''} em segundo plano`,
     },
   };
 
@@ -201,7 +210,7 @@
       statusH: 'Statuses',
       status: {
         thinking: 'Working on a turn, no tool running yet. Sits at a desk.',
-        tool: 'Running a tool (shell, edit, search…). The tool name shows above the head. Sits at a desk. A session whose turn ended while subagents it started are still busy also shows here, as “waiting for N subagents”.',
+        tool: 'Running a tool (shell, edit, search…). The tool name shows above the head. Sits at a desk. A session whose turn ended while subagents or background tasks it started are still busy also shows here, as “waiting for N subagents” or “waiting for N background tasks”.',
         typing: 'Writing the reply. Sits at a desk.',
         waiting: 'Needs you: a permission prompt or a question. Stands up and waves with a “!”.',
         error: 'The last turn failed. Stands up with a “!”.',
@@ -240,7 +249,7 @@
       statusH: '狀態',
       status: {
         thinking: '正在處理這一輪，還沒跑工具。坐在桌前。',
-        tool: '正在跑工具（shell、改檔、搜尋…），頭上顯示工具名。坐在桌前。主 agent 這一輪結束但它叫起的 subagent 還在跑時，也算在這裡，顯示「等 N 個 subagent」。',
+        tool: '正在跑工具（shell、改檔、搜尋…），頭上顯示工具名。坐在桌前。這一輪結束但它叫起的 subagent 或背景工作還在跑時，也算在這裡，顯示「等 N 個 subagent」或「等 N 個背景工作」。',
         typing: '正在寫回覆。坐在桌前。',
         waiting: '需要你：權限確認或問你問題。站起來揮手，頭上「!」。',
         error: '上一輪出錯。站起來，頭上「!」。',

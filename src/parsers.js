@@ -15,6 +15,10 @@
 const path = require('path');
 
 const WAITING_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
+const STOP_TOOLS = new Set(['TaskStop', 'KillShell']);
+// A background task outliving its turn this long is assumed lost (its
+// completion notice fell outside the log tail, or the session was rewound).
+const BG_MAX_MS = 60 * 60_000;
 
 function newSession(agent, id, file) {
   return {
@@ -115,11 +119,68 @@ function describeClaudeTool(name, input = {}) {
   }
 }
 
+// Background tasks (Bash run_in_background or timed out into the background,
+// Monitor) outlive the turn that started them; the agent is woken by a
+// <task-notification> once one ends. A stopped task gets no notice, so a
+// successful TaskStop / KillShell ends it too. Results are matched to the
+// call that made them, so only these tools can start or stop a task. Async
+// subagents are left out: their own logs say whether they are busy.
+const BG_TOOLS = new Set(['Bash', 'Monitor', ...STOP_TOOLS]);
+
+function noteBackgroundCall(s, b) {
+  if (!BG_TOOLS.has(b.name) || typeof b.id !== 'string') return;
+  (s.bgCalls ||= Object.create(null))[b.id] = { name: b.name, stopId: b.input?.task_id || b.input?.shell_id };
+}
+
+function trackBackground(s, id, ts, ttl = BG_MAX_MS) {
+  if (typeof id !== 'string' || !id) return;
+  const at = ts || Date.now();
+  s.bg ||= Object.create(null);
+  for (const k in s.bg) if (s.bg[k] <= at) delete s.bg[k];
+  s.bg[id] = at + ttl;
+}
+
+function endBackground(s, id) {
+  if (s.bg && typeof id === 'string') delete s.bg[id];
+}
+
+function applyBackgroundResult(s, block, r, ts) {
+  const call = s.bgCalls?.[block.tool_use_id];
+  if (!call) return;
+  delete s.bgCalls[block.tool_use_id];
+  if (STOP_TOOLS.has(call.name)) { if (!block.is_error) endBackground(s, call.stopId); return; }
+  if (!r || typeof r !== 'object') return;
+  if (call.name === 'Bash') trackBackground(s, r.backgroundTaskId, ts);
+  else trackBackground(s, r.taskId, ts, Math.max(BG_MAX_MS, (Number(r.timeoutMs) || 0) + 60_000));
+}
+
+// A notice with a <status> is the final one; Monitor events carry none.
+function applyNotification(s, text) {
+  if (!s.bg || typeof text !== 'string' || !text.includes('<task-notification>')) return;
+  for (const m of text.matchAll(/<task-notification>([\s\S]*?)<\/task-notification>/g)) {
+    const id = m[1].match(/<task-id>([^<]+)<\/task-id>/);
+    if (id && /<status>[^<]+<\/status>/.test(m[1])) endBackground(s, id[1].trim());
+  }
+}
+
+function pendingBackground(s, now = Date.now()) {
+  if (!s.bg) return 0;
+  let n = 0;
+  for (const k in s.bg) if (s.bg[k] > now) n++;
+  return n;
+}
+
 function applyClaude(s, d) {
   const ts = stamp(s, d.timestamp);
   if (d.cwd) s.cwd = d.cwd;
 
   switch (d.type) {
+    case 'queue-operation':
+      if (d.operation === 'enqueue') applyNotification(s, d.content);
+      return;
+    case 'attachment':
+      if (d.attachment?.type === 'queued_command') applyNotification(s, d.attachment.prompt);
+      return;
     case 'custom-title':
       if (d.customTitle) s.title = d.customTitle;
       return;
@@ -137,6 +198,7 @@ function applyClaude(s, d) {
       if (d.isMeta) return;
       const c = d.message?.content;
       if (Array.isArray(c) && c.some((x) => x.type === 'tool_result')) {
+        for (const x of c) if (x.type === 'tool_result') applyBackgroundResult(s, x, d.toolUseResult, ts);
         // Tool finished (or you answered its question); model reads the result.
         set(s, 'thinking');
         return;
@@ -149,7 +211,8 @@ function applyClaude(s, d) {
       if (text.includes('<local-command-stdout>') || text.includes('<local-command-caveat>')) return;
       const cmd = text.match(/<command-name>([^<]+)<\/command-name>/);
       const isNotification = text.trimStart().startsWith('<task-notification>');
-      if (!isNotification) {
+      if (isNotification) applyNotification(s, text);
+      else {
         s.prompt = cmd ? cmd[1].trim() : clean(text);
         if (!s.title && d.isSidechain) s.title = clean(text, 80);
         s.reply = null;
@@ -168,6 +231,7 @@ function applyClaude(s, d) {
           s.reply = clean(b.text) || s.reply;
           set(s, m.stop_reason === 'end_turn' || m.stop_reason === 'stop_sequence' ? 'done' : 'typing', null);
         } else if (b.type === 'tool_use') {
+          noteBackgroundCall(s, b);
           set(s, WAITING_TOOLS.has(b.name) ? 'waiting' : 'tool', describeClaudeTool(b.name, b.input));
         }
       }
@@ -419,4 +483,4 @@ function applyGeminiDocument(s, doc) {
   applyGemini(s, { $set: doc });
 }
 
-module.exports = { newSession, applyClaude, applyCodex, applyGemini, applyGeminiDocument, clean };
+module.exports = { newSession, applyClaude, applyCodex, applyGemini, applyGeminiDocument, clean, pendingBackground, BG_MAX_MS };

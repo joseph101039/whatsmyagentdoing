@@ -18,6 +18,7 @@ const MOUNTS = { '/assets/': path.join(__dirname, '..', 'assets') };
 const scenes = require('./scenes');
 const updater = require('./update');
 const { mergeSessions, pluginParents, isPresent } = require('./agentdeck');
+const { pendingBackground } = require('./parsers');
 const { canClose, closeSession, inspectCachedMany, precheck } = require('./close');
 
 function serveFile(res, root, rel) {
@@ -67,6 +68,9 @@ function view(s, now, { privacy }, deck, procs) {
     turnStartedAt: s.turnStartedAt,
     lastEventAt: s.lastEventAt || s.mtime,
     startedAt: s.startedAt,
+    // a task outliving a log-only session by the 'tool' decay window is
+    // most likely orphaned by a session that was closed
+    bgTasks: s.alive === true || quiet <= 45 * 60_000 ? pendingBackground(s, now) : 0,
   };
   if (deck) {
     const row = deck.get(out.key);
@@ -89,22 +93,30 @@ function view(s, now, { privacy }, deck, procs) {
 
 // A parent whose turn ended (done/idle) while subagents it started are still
 // busy is waiting on them, not finished: show it as running a tool with a
-// count, so it keeps its desk and counts as working. Children are counted from
-// their own view() statuses before any parent changes, so nested or cyclic
-// links can't hold each other up. Needs-you and interrupted states are kept,
-// and a parent whose process ended stays gone.
+// count, so it keeps its desk and counts as working. The same goes for a
+// session (parent or subagent) waiting on a background task it started.
+// Children are counted from their own view() statuses before any parent
+// changes, so nested or cyclic links can't hold each other up. Needs-you and
+// interrupted states are kept, and a session whose process ended stays gone.
+// bgTasks reaches the page only on the sessions it holds this way.
+const ended = (s) => s.status === 'done' || s.status === 'idle';
+
 function markDelegating(sessions) {
   const busy = new Map();
   for (const c of sessions) {
-    if (!c.subagent || !c.parentId || c.alive === false || !ACTIVE.has(c.status)) continue;
+    if (!c.subagent || !c.parentId || c.alive === false || !(ACTIVE.has(c.status) || (ended(c) && c.bgTasks > 0))) continue;
     const parentKey = `${c.spawnedBy || c.agent}:${c.parentId}`;
     if (parentKey === c.key) continue;
     busy.set(parentKey, (busy.get(parentKey) || 0) + 1);
   }
   return sessions.map((s) => {
     const n = busy.get(s.key);
-    if (!n || s.alive === false || (s.status !== 'done' && s.status !== 'idle')) return s;
-    return { ...s, status: 'tool', activity: null, delegating: n };
+    const { bgTasks, ...rest } = s;
+    if (!(n || bgTasks > 0) || s.alive === false || !ended(s)) return rest;
+    const out = { ...rest, status: 'tool', activity: null };
+    if (n) out.delegating = n;
+    if (bgTasks > 0) out.bgTasks = bgTasks;
+    return out;
   });
 }
 
