@@ -42,6 +42,8 @@ test('every way the completion is logged clears it', () => {
     attachment: { type: 'attachment', timestamp: iso(at), attachment: { type: 'queued_command', prompt: note('bq3', 'completed') } },
     queue: { type: 'queue-operation', operation: 'enqueue', timestamp: iso(at), content: note('bq3', 'failed') },
     user: { type: 'user', timestamp: iso(at), message: { content: note('bq3', 'stopped') } },
+    // how a subagent whose turn ended is woken: a meta line with a preamble
+    metaUser: { type: 'user', isMeta: true, timestamp: iso(at), message: { content: `[SYSTEM NOTIFICATION - NOT USER INPUT]\nThis is an automated background-task event.\n\n${note('bq3', 'completed')}` } },
     taskStop: [...stop('TaskStop', { task_id: 'bq3' }, at)],
     killShell: [...stop('KillShell', { shell_id: 'bq3' }, at)],
   };

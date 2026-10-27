@@ -195,8 +195,10 @@ function applyClaude(s, d) {
       }
       return;
     case 'user': {
-      if (d.isMeta) return;
       const c = d.message?.content;
+      // A subagent whose turn ended is woken by a meta line that wraps the
+      // notice in a preamble; it still ends the task.
+      if (d.isMeta) { if (typeof c === 'string') applyNotification(s, c); return; }
       if (Array.isArray(c) && c.some((x) => x.type === 'tool_result')) {
         for (const x of c) if (x.type === 'tool_result') applyBackgroundResult(s, x, d.toolUseResult, ts);
         // Tool finished (or you answered its question); model reads the result.
