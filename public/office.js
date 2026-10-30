@@ -277,11 +277,16 @@
     // Same conditions the renderers use: the ball flies once both players
     // stand at the table; foosball rods move once both handles are taken.
     playing() {
-      const pp = this.plan.pois
-        .filter((q) => q.pair === 'pp' && q.taken)
-        .map((q) => this.people.get(q.taken))
-        .filter((p) => p && p.poi && p.poi.pair === 'pp' && !p.path.length).length === 2;
-      return pp || this.plan.pois.filter((q) => q.pair === 'fb' && q.taken).length === 2;
+      return this.pairPlaying('pp') || this.pairPlaying('fb');
+    }
+
+    pairPlaying(pair) {
+      const spots = this.plan.pois.filter((q) => q.pair === pair);
+      return spots.length === 2 && spots.every((q) => {
+        const p = this.people.get(q.taken);
+        return p && p.mode === 'wander' && p.poi === q && !p.path.length &&
+          Math.hypot(p.x - q.x, p.y - q.y) < 0.05;
+      });
     }
 
     destroy() {
@@ -608,7 +613,20 @@
     }
 
     release(p) {
-      if (p.poi) { p.poi.taken = null; p.poi = null; }
+      if (!p.poi) return;
+      const pair = p.poi.pair;
+      p.poi.taken = null;
+      p.poi = null;
+      if (pair) for (const q of this.plan.pois) {
+        if (q.pair !== pair || !q.taken) continue;
+        const other = this.people.get(q.taken);
+        q.taken = null;
+        if (other && other.poi === q) {
+          other.poi = null;
+          other.until = 0;
+          other.path = [];
+        }
+      }
     }
 
     newPerson(s) {
@@ -635,6 +653,13 @@
       p.path = this.plan.grid.path(p.x, p.y, target.x, target.y);
     }
 
+    // Someone to play a two-player game with: off duty, standing still and
+    // not already in a game. Lingering elsewhere is fine; they leave that spot.
+    partner(p) {
+      return [...this.people.values()].find((o) => o !== p && o.mode === 'wander' &&
+        !o.leaving && !o.path.length && !this.held(o) && !(o.poi && o.poi.pair));
+    }
+
     wander(p, now) {
       if (p.path.length) return;
       if (p.poi && now < p.until) return;
@@ -643,11 +668,18 @@
       // Desks are only for agents with a turn in progress; off-duty agents,
       // finished or idle, rest in the lounge instead of dozing at a desk.
       const sleepy = p.s.status === 'idle';
+      const nearDesk = (q) => plan.desks.some((d) => Math.hypot(q.x - d.seat.x, q.y - d.seat.y) < 1.2 ||
+        (!plan.scene && q.x > d.x - 0.6 && q.x < d.x + 2 && q.y > d.y - 0.6 && q.y < d.y + 1.4));
       const weighted = [];
       for (const q of plan.pois) {
-        if (q.taken) continue;
+        if (q.taken || nearDesk(q)) continue;
         let w = 1;
-        if (q.pair) w = plan.pois.some((o) => o.pair === q.pair && o !== q && o.taken) ? 7 : 1.2;
+        if (q.pair) {
+          const spots = plan.pois.filter((o) => o.pair === q.pair);
+          if (spots.length !== 2 || spots.some((o) => o.taken || nearDesk(o))) continue;
+          if (!this.partner(p)) continue;
+          w = 1.2;
+        }
         if (q.act === 'couch' || q.act === 'beanbag' || q.sleepy) w = sleepy ? 3 : 1.4;
         weighted.push([q, w]);
       }
@@ -662,6 +694,16 @@
       // calm rate; two-player games run at 30fps, so those stay short.
       p.stay = (choice.pair ? rand(15, 30) : rand(30, 90)) * 1000;
       this.goTo(p, choice);
+      if (choice.pair) {
+        const other = this.partner(p);
+        this.release(other);
+        const spot = plan.pois.find((q) => q.pair === choice.pair && q !== choice);
+        spot.taken = other.key;
+        other.poi = spot;
+        other.until = Infinity;
+        other.stay = p.stay;
+        this.goTo(other, spot);
+      }
     }
 
     // Size changes while shown come from the ResizeObserver; resizing here on
@@ -1079,7 +1121,7 @@
       for (const [lx, ly] of [[0.1, 0.1], [1.42, 0.1], [0.1, 0.62], [1.42, 0.62]]) this.box(x + lx, y + ly, 0, 0.08, 0.08, 0.6, '#5a4030', '#5a4030', '#4a3428');
       this.box(x, y, 0.6, 1.6, 0.8, 0.25, '#2f8a4a', '#6e533b', '#5c4431');
       const P = (a, b, c) => this.iso(a, b, c);
-      const players = this.plan && this.plan.pois.filter((q) => q.pair === 'fb' && q.taken).length === 2;
+      const players = this.plan && this.pairPlaying('fb');
       for (let k = 0; k < 6; k++) {
         const rx = x + 0.2 + k * 0.24;
         const shift = players ? Math.sin(this.t / 120 + k) * 0.06 : 0;
@@ -1229,6 +1271,7 @@
       }
       if (p.mode === 'wander' && p.poi) {
         const q = p.poi;
+        if (q.pair && !this.pairPlaying(q.pair)) return { pose: 'stand', face: q.face, act: null, sitZ: 0 };
         return { pose: q.sit ? 'sit' : 'stand', face: q.face === 'side' ? 'front' : q.face, act: q.act, sitZ: q.sit || 0 };
       }
       return { pose: 'stand', face: 'front', act: null, sitZ: 0 };
@@ -1570,11 +1613,7 @@
     }
 
     pingPongBall() {
-      const players = this.plan.pois
-        .filter((q) => q.pair === 'pp' && q.taken)
-        .map((q) => this.people.get(q.taken))
-        .filter((p) => p && p.poi && p.poi.pair === 'pp' && !p.path.length);
-      if (players.length < 2) return;
+      if (!this.pairPlaying('pp')) return;
       const pp = this.plan.pp;
       const k = (this.t / 900) % 2;
       const f = k < 1 ? k : 2 - k;
@@ -1609,7 +1648,13 @@
       for (const [k, p] of this.people) {
         if (this.held(p)) continue;
         if (p.mode === 'wander') {
-          if (p.poi && !p.path.length && p.until === Infinity) p.until = wall + p.stay;
+          if (p.poi && !p.path.length && p.until === Infinity) {
+            if (p.poi.pair) {
+              if (this.pairPlaying(p.poi.pair)) for (const q of this.plan.pois) {
+                if (q.pair === p.poi.pair) this.people.get(q.taken).until = wall + p.stay;
+              }
+            } else p.until = wall + p.stay;
+          }
           this.wander(p, wall);
         }
         if (p.path.length) {

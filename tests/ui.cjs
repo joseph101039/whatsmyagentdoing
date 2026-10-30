@@ -112,6 +112,33 @@ async function drawnLogos(target) {
   });
   assert.deepEqual(offDesk,{onDesk:0,badStay:0,offDuty:3});
   check('done and idle agents never take a desk, linger 30-90s (games 15-30s); past the wanderer cap they count as not shown');
+  const paired=await page.evaluate(()=>{
+   const original={people:office.people,pois:office.plan.pois};
+   const [a,b]=['a','b'].map(key=>({key,mode:'wander',s:{status:'done'},x:1,y:1,path:[],until:0,placeOnArrive:true}));
+   const spots=pair=>office.plan.pois.filter(q=>q.pair===pair).map(q=>({...q,taken:null}));
+   const pp=spots('pp');
+   const fb=spots('fb');
+   const desk=office.plan.desks[0];
+   const near={x:desk.seat.x+0.3,y:desk.seat.y,act:'window',taken:null};
+   const lounge={x:office.plan.W-1,y:office.plan.D-1,act:'couch',taken:null};
+   try{
+    office.people=new Map([[a.key,a]]);office.plan.pois=pp;
+    office.wander(a,Date.now());const solo=!a.poi&&pp.every(q=>!q.taken);
+    office.people.set(b.key,b);lounge.taken='b';b.poi=lounge;b.until=Infinity;office.wander(a,Date.now());
+    const claimed=pp.includes(a.poi)&&pp.includes(b.poi)&&a.poi!==b.poi&&a.poi.taken==='a'&&b.poi.taken==='b'&&!lounge.taken;
+    b.path=[{x:3,y:2}];const waiting=!office.pairPlaying('pp')&&office.stateOf(a).act===null;
+    b.path=[];b.x=b.poi.x;b.y=b.poi.y;
+    const playing=office.pairPlaying('pp')&&office.stateOf(a).act==='pingpong';
+    office.release(a);const left=!b.poi&&pp.every(q=>!q.taken);
+    a.poi=null;b.poi=null;a.until=0;b.until=0;a.path=[];b.path=[];
+    office.plan.pois=fb;office.wander(a,Date.now());const foosball=fb.includes(a.poi)&&fb.includes(b.poi)&&a.poi!==b.poi;
+    office.release(a);a.until=0;a.path=[];office.people=new Map([[a.key,a]]);
+    office.plan.pois=[near,lounge];office.wander(a,Date.now());const away=a.poi===lounge;
+    return {solo,claimed,waiting,playing,left,foosball,away};
+   }finally{office.people=original.people;office.plan.pois=original.pois;}
+  });
+  assert.deepEqual(paired,{solo:true,claimed:true,waiting:true,playing:true,left:true,foosball:true,away:true});
+  check('paired games need two free agents (one may leave a lounge spot), start on arrival, end together, and off-duty stops avoid desks');
   const deskless=await page.evaluate(()=>{
    const now=Date.now();
    office.plan.fixed=true;office.plan.desks=office.plan.desks.slice(0,1);office.deskOf.clear();
@@ -251,7 +278,7 @@ async function drawnLogos(target) {
    const still=office.lively();
    const p=saved[0].p;p.path=[{x:p.x+1,y:p.y}];const walk=office.lively();p.path=[];
    const pp=office.plan.pois.filter(q=>q.pair==='pp');const [a,b]=[saved[0].p,saved[1]?.p];
-   let game=null;if(b){pp[0].taken=a.key;pp[1].taken=b.key;const pa=a.poi,pb=b.poi;a.poi=pp[0];b.poi=pp[1];game=office.lively();a.poi=pa;b.poi=pb;pp[0].taken=pp[1].taken=null;}
+   let game=null;if(b){pp[0].taken=a.key;pp[1].taken=b.key;const sa={poi:a.poi,mode:a.mode,x:a.x,y:a.y},sb={poi:b.poi,mode:b.mode,x:b.x,y:b.y};a.poi=pp[0];b.poi=pp[1];a.mode=b.mode='wander';a.x=pp[0].x;a.y=pp[0].y;b.x=pp[1].x;b.y=pp[1].y;game=office.lively();Object.assign(a,sa);Object.assign(b,sb);pp[0].taken=pp[1].taken=null;}
    for(const q of office.plan.pois)if(q.pair)q.taken=q.__t;
    for(const x of saved){x.p.path=x.path;x.p.poi=x.poi;x.p.until=x.until;}office.cat.path=cat;
    return {still,walk,game};

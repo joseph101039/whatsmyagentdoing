@@ -1057,7 +1057,7 @@ export class Office3D extends window.Office {
       }[st.pose === 'walk' ? 'walk' : st.act] || (st.pose === 'sit' ? 'sit' : 'idle');
       let chosen = anim;
       if (st.act === 'station') chosen = p.s.status === 'thinking' ? 'idle' : (p.desk.anim || 'interact-right');
-      else if (!p.path.length && p.poi && p.poi.anim) chosen = p.poi.anim;
+      else if (!p.path.length && p.poi && p.poi.anim && (!p.poi.pair || this.pairPlaying(p.poi.pair))) chosen = p.poi.anim;
       this.play(a, chosen);
       a.mixer.update(dt);
 
@@ -1270,7 +1270,7 @@ export class Office3D extends window.Office {
       b.m.material.emissiveIntensity = on ? 1.2 : 0.05;
     }
     if (this.arcadeScreen) this.arcadeScreen.material.emissive.setHSL((t * 0.05) % 1, 0.7, 0.5);
-    const fbPlaying = this.plan.pois.filter((q) => q.pair === 'fb' && q.taken).length === 2;
+    const fbPlaying = this.pairPlaying('fb');
     if (this.rods) this.rods.forEach((r, k) => { r.position.z = this.plan.props.find((q) => q.t === 'foosball').y + 0.4 + (fbPlaying ? Math.sin(t * 8 + k) * 0.06 : 0); r.rotation.z = fbPlaying ? Math.sin(t * 12 + k) * 0.6 : 0; });
     this.updateBall();
 
@@ -1313,9 +1313,7 @@ export class Office3D extends window.Office {
 
   updateBall() {
     if (!this.ball) return;
-    const players = this.plan.pois.filter((q) => q.pair === 'pp' && q.taken)
-      .map((q) => this.people.get(q.taken)).filter((p) => p && p.poi && p.poi.pair === 'pp' && !p.path.length);
-    this.ball.visible = players.length === 2;
+    this.ball.visible = this.pairPlaying('pp');
     if (!this.ball.visible) return;
     const pp = this.plan.pp;
     const k = (this.t / 900) % 2;
