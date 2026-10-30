@@ -347,7 +347,8 @@ class Watcher extends EventEmitter {
       // Gemini re-appends whole messages with their original timestamps, so
       // the file's own write time is the best "last activity" signal.
       if (s.agent === 'gemini') s.lastEventAt = Math.max(s.lastEventAt || 0, s.mtime || 0);
-      if (s.agent === 'codex' && !s.title) {
+      // The index only holds /rename names, so the latest one always wins.
+      if (s.agent === 'codex') {
         const name = this.codexNames.get(s.id);
         if (name) s.title = name;
       }
