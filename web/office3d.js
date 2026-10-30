@@ -222,6 +222,7 @@ export class Office3D extends window.Office {
   // ------------------------------------------------------------ build room
 
   build() {
+    this.bedCover = null;
     if (this.plan.scene) return this.buildScene();
     const plan = this.plan;
     if (this.room) { this.scene.remove(this.room); }
@@ -519,6 +520,19 @@ export class Office3D extends window.Office {
       case 'couch':
         this.place('loungeSofa', p.x - 0.1, p.y - 0.15, p.w + 0.2, p.d + 0.2, { h: 0.8, stretch: true });
         break;
+      case 'bed': {
+        const { x, y } = p;
+        const wood = dark ? 0x6b4a32 : 0xa0784f;
+        this.boxMesh(x, y, 0, p.w, p.d, 0.28, wood);
+        this.boxMesh(x - 0.08, y, 0, 0.08, p.d, 0.8, wood);
+        this.boxMesh(x + 0.02, y + 0.03, 0.28, p.w - 0.06, p.d - 0.06, 0.12, 0xf4f1ea, { rough: 0.95 });
+        this.boxMesh(x + 0.1, y + 0.15, 0.4, 0.4, 0.55, 0.1, 0xffffff, { rough: 0.95 });
+        this.boxMesh(x + 0.6, y + 0.03, 0.4, p.w - 0.64, p.d - 0.06, 0.03, 0x7d93c4, { rough: 0.95 });
+        // pulled up over whoever is asleep; hidden while the bed is empty
+        this.bedCover = this.boxMesh(x + 0.5, y + 0.1, 0.43, p.w - 0.55, p.d - 0.2, 0.2, 0x8aa0d0, { rough: 0.95 });
+        this.bedCover.visible = false;
+        break;
+      }
       case 'coffeeTable':
         this.place('tableCoffee', p.x, p.y, p.w, p.d, { h: 0.35 });
         this.place('radio', p.x + 1.0, p.y + 0.2, 0.3, 0.18, { y0: 0.35, h: 0.18 });
@@ -1043,6 +1057,7 @@ export class Office3D extends window.Office {
   }
 
   syncActors(dt) {
+    let sleeping = false;
     for (const [k, a] of this.actors) {
       if (!this.people.has(k)) { this.scene.remove(a.obj, a.prop); this.actors.delete(k); }
     }
@@ -1072,6 +1087,19 @@ export class Office3D extends window.Office {
       }
       a.last = { x: p.x, y: p.y };
       a.obj.rotation.y = a.yaw;
+      // Lying on the back, head on the pillow (the model's origin is at its feet).
+      const lying = st.pose === 'lie';
+      a.obj.rotation.order = 'YXZ';
+      a.obj.rotation.x = lying ? -Math.PI / 2 : 0;
+      if (lying) {
+        // no easing into bed: a half-turned body would lie across it
+        a.yaw = a.obj.rotation.y = p.poi.yaw;
+        const len = CHAR_HEIGHT * (p.s.subagent ? 0.8 : 1);
+        a.obj.position.set(p.poi.head - 0.2 + len, st.sitZ + 0.12, p.y);
+        a.cup.visible = a.book.visible = false;
+        sleeping = true;
+        continue;
+      }
       const seatY = st.pose === 'sit' ? this.seatHeight(p.x, p.y, st.sitZ)
         : this.plan.terrain ? this.groundHeight(p.x, p.y) : 0;
       // The sit pose's torso leans back past its origin; slide the body
@@ -1097,6 +1125,7 @@ export class Office3D extends window.Office {
         a.cup.material.color.set(st.act === 'water' ? 0x9fd3ff : 0xffffff);
       }
     }
+    if (this.bedCover) this.bedCover.visible = sleeping;
   }
 
   // Highest surface below `limit` under (x, z). Sampled at the point and
@@ -1112,7 +1141,7 @@ export class Office3D extends window.Office {
   batchStatic() {
     const room = this.room;
     const dynamic = new Set([
-      ...this.screens.values(), ...this.blinkers.map((b) => b.m), this.ball, ...(this.rods || []), this.arcadeScreen,
+      ...this.screens.values(), ...this.blinkers.map((b) => b.m), this.ball, ...(this.rods || []), this.arcadeScreen, this.bedCover,
       this.water, ...(this.bobbers || []).map((b) => b.m), ...(this.flames || []).flatMap((f) => [f.outer, f.inner]),
       this.planet, this.stars, ...(this.pulsers || []).map((g) => g.m),
     ].filter(Boolean));
@@ -1291,8 +1320,9 @@ export class Office3D extends window.Office {
       const scale = p.s.subagent ? 0.8 : 1;
       const base = this.plan.terrain && st.pose !== 'sit' ? this.groundHeight(p.x, p.y) : 0;
       const floatUp = !p.path.length && p.poi && p.poi.float ? 0.45 + Math.sin((this.t / 1000 + p.phase) * 0.9) * 0.18 : 0;
-      const top = (st.pose === 'sit' ? this.seatHeight(p.x, p.y, st.sitZ) + CHAR_HEIGHT * 0.8 * scale : base + CHAR_HEIGHT * scale) + floatUp;
-      v.set(p.x, top + 0.05, p.y).project(this.camera);
+      const top = st.pose === 'lie' ? st.sitZ + 0.45
+        : (st.pose === 'sit' ? this.seatHeight(p.x, p.y, st.sitZ) + CHAR_HEIGHT * 0.8 * scale : base + CHAR_HEIGHT * scale) + floatUp;
+      v.set(st.pose === 'lie' ? p.poi.head : p.x, top + 0.05, p.y).project(this.camera);
       const sx = (v.x + 1) / 2 * this.cw, sy = (1 - v.y) / 2 * this.ch;
       const foot = new THREE.Vector3(p.x, 0, p.y).project(this.camera);
       const fy = (1 - foot.y) / 2 * this.ch;

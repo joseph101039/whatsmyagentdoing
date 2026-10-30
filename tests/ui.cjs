@@ -106,12 +106,12 @@ async function drawnLogos(target) {
    for(let round=0;round<40;round++) for(const p of office.people.values()){
     p.path=[];p.until=0;office.wander(p,Date.now());
     if(p.poi&&seats.some(q=>Math.hypot(q.x-p.poi.x,q.y-p.poi.y)<0.05)) onDesk++;
-    if(p.poi&&!(p.poi.pair?p.stay>=15000&&p.stay<=30000:p.stay>=30000&&p.stay<=90000)) badStay++;
+    if(p.poi&&!(p.poi.bed?p.stay===Infinity:p.poi.pair?p.stay>=15000&&p.stay<=30000:p.stay>=30000&&p.stay<=90000)) badStay++;
    }
    return {onDesk,badStay,offDuty:office.offDuty};
   });
   assert.deepEqual(offDesk,{onDesk:0,badStay:0,offDuty:3});
-  check('done and idle agents never take a desk, linger 30-90s (games 15-30s); past the wanderer cap they count as not shown');
+  check('done and idle agents never take a desk, linger 30-90s (games 15-30s, the bed until woken); past the wanderer cap they count as not shown');
   const paired=await page.evaluate(()=>{
    const original={people:office.people,pois:office.plan.pois};
    const [a,b]=['a','b'].map(key=>({key,mode:'wander',s:{status:'done'},x:1,y:1,path:[],until:0,placeOnArrive:true}));
@@ -139,6 +139,45 @@ async function drawnLogos(target) {
   });
   assert.deepEqual(paired,{solo:true,claimed:true,waiting:true,playing:true,left:true,foosball:true,away:true});
   check('paired games need two free agents (one may leave a lounge spot), start on arrival, end together, and off-duty stops avoid desks');
+  const bed=await page.evaluate(()=>{
+   const original={people:office.people,pois:office.plan.pois,random:Math.random,now:Date.now};
+   const plan=office.plan;const spot=plan.pois.find(q=>q.bed);
+   const nearDoor=!!spot&&Math.hypot(spot.x-plan.door.x,spot.y-plan.door.y)<2.5&&plan.props.some(q=>q.t==='bed');
+   const lounge={x:plan.W-1,y:plan.D-1,act:'couch',taken:null};
+   const bedSpot={...spot,taken:null};
+   const now=Date.now();Date.now=()=>now; // fixed clock for the 30-minute boundary
+   const a={key:'a',mode:'wander',s:{status:'done',lastEventAt:now},x:1,y:1,path:[],until:0,placeOnArrive:true};
+   const b={key:'b',mode:'wander',s:{status:'idle',lastEventAt:now},x:1,y:1,path:[],until:0,placeOnArrive:true};
+   try{
+    office.people=new Map([[a.key,a]]);office.plan.pois=[bedSpot];
+    office.wander(a,now);const freshStaysUp=!a.poi&&!bedSpot.taken;
+    a.s={status:'done',lastEventAt:now-30*60_000};office.wander(a,now);const under30=!a.poi;
+    Math.random=()=>0;
+    a.s={status:'done',lastEventAt:now-30*60_000-1};office.plan.pois=[lounge,bedSpot];
+    office.wander(a,now);const drowsyDone=a.poi===bedSpot&&a.stay===Infinity;
+    office.people.set(b.key,b);office.wander(b,now);const shared=b.poi===lounge;
+    office.release(b);b.until=0;b.path=[];
+    const notPartner=office.partner(b)===undefined;
+    const lies=office.stateOf(a).pose==='lie';
+    office.step(0.016);const stays=a.until===Infinity&&a.poi===bedSpot;
+    office.release(a);a.until=0;a.path=[];
+    a.s={status:'idle',lastEventAt:now};office.wander(a,now);const idle=a.poi===bedSpot;
+    a.path=[];a.s={status:'done',lastEventAt:Date.now()};office.wander(a,Date.now());
+    const woke=a.poi!==bedSpot&&!bedSpot.taken;
+    return {nearDoor,freshStaysUp,under30,drowsyDone,shared,notPartner,lies,stays,idle,woke};
+   }finally{office.people=original.people;office.plan.pois=original.pois;Math.random=original.random;Date.now=original.now;}
+  });
+  assert.deepEqual(bed,{nearDoor:true,freshStaysUp:true,under30:true,drowsyDone:true,shared:true,notPartner:true,lies:true,stays:true,idle:true,woke:true});
+  const toWork=await page.evaluate(()=>{
+   const now=Date.now();const spot=office.plan.pois.find(q=>q.bed);
+   const mk=(status,t)=>({key:'claude:nap',id:'nap',agent:'claude',project:'p',status,lastEventAt:t,startedAt:now});
+   office.update([mk('done',now-40*60_000)]);const p=office.people.get('claude:nap');
+   p.path=[];p.until=0;office.wander(p,now);const asleep=p.poi===spot;
+   office.update([mk('thinking',now)]);
+   return {asleep,atDesk:p.mode==='work'&&!!p.desk,freed:!spot.taken&&!p.poi};
+  });
+  assert.deepEqual(toWork,{asleep:true,atDesk:true,freed:true});
+  check('the bed by the door is only for agents idle or done 30+ minutes, one at a time and never pulled into games; they lie there until their status changes');
   const deskless=await page.evaluate(()=>{
    const now=Date.now();
    office.plan.fixed=true;office.plan.desks=office.plan.desks.slice(0,1);office.deskOf.clear();
@@ -318,6 +357,19 @@ async function drawnLogos(target) {
   });
   assert.equal(glide,true,'a moving 3D camera keeps 30fps; 3D ignores the cat');
   check('3D merges static furniture (<300 draw calls) while screens, LEDs, ball, rods and the sky-tinted window stay live; seats stay measurable and rebuilds free old batches');
+  const bed3d=await page.evaluate(()=>{
+   const spot=office.plan.pois.find(q=>q.bed);const p=[...office.people.values()][0];
+   const saved={poi:p.poi,x:p.x,y:p.y,path:p.path,mode:p.mode,until:p.until,s:p.s};
+   const inRoom=(o)=>{for(let x=o;x;x=x.parent)if(x===office.room)return true;return false};
+   try{
+    office.frame(performance.now());const emptyHidden=!!office.bedCover&&!office.bedCover.visible&&inRoom(office.bedCover);
+    office.release(p);spot.taken=p.key;Object.assign(p,{poi:spot,x:spot.x,y:spot.y,path:[],mode:'wander',until:Infinity,s:{...p.s,status:'idle'}});
+    office.frame(performance.now());const a=office.actors.get(p.key);
+    return {emptyHidden,shown:office.bedCover.visible,flat:Math.abs(a.obj.rotation.x+Math.PI/2)<1e-6,alongBed:Math.abs(a.yaw-Math.PI/2)<1e-6};
+   }finally{office.release(p);Object.assign(p,saved);office.frame(performance.now());}
+  });
+  assert.deepEqual(bed3d,{emptyHidden:true,shown:true,flat:true,alongBed:true});
+  check('3D bed: the blanket cover shows only while someone lies there, flat and lengthwise');
   await openSettings(page);await page.selectOption('#langSel','zh-TW');await page.keyboard.press('Escape');
   assert.equal(await page.locator('#focusBtn').getAttribute('aria-label'),'只看辦公室');
   await openSettings(page);await page.selectOption('#langSel','auto');await page.keyboard.press('Escape');

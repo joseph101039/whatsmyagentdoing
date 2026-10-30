@@ -12,6 +12,9 @@
   const FRAME_MS = 1000 / 30; // frame budget while something moves
   const CALM_MS = 1000 / 5;   // frame budget while everyone stays put
   const SPEED = 2.1; // tiles / second
+  // Off duty this long (or idle) counts as drowsy: they head for the bed by
+  // the door and lie there until their status changes.
+  const DROWSY_MS = 30 * 60_000;
 
   const SKIN = ['#f3cfb0', '#e5b38f', '#c98d66', '#9a6646', '#6e4630', '#f7dcc7'];
   const HAIR = ['#2a2019', '#4b3020', '#8a4b2a', '#c99a5b', '#1c1c1c', '#8c8c8c', '#a33a2c', '#3d3550'];
@@ -54,6 +57,7 @@
   const pick = (arr, h, salt) => arr[(Math.imul(h ^ Math.imul(salt, 2654435761), 2246822519) >>> 0) % arr.length];
   const rand = (a, b) => a + Math.random() * (b - a);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const drowsy = (s) => !!s && (s.status === 'idle' || (s.status === 'done' && Date.now() - (s.lastEventAt || 0) > DROWSY_MS));
 
   function palette() {
     const dark = matchMedia('(prefers-color-scheme: dark)').matches;
@@ -418,6 +422,14 @@
         prop('plant', { x: OW - 0.45, y: D - 0.6 });
       }
 
+      // ---- bed by the front door, along the front edge
+      const bx = 1.1, by = D - 0.95;
+      add(bx + 0.9 + by + 0.42 - 0.05, () => this.bed(bx, by));
+      prop('bed', { x: bx, y: by, w: 1.8, d: 0.85 });
+      solid(bx, by, 1.8, 0.85);
+      // head: where the sleeper's head rests on the pillow (both renderers)
+      poi(bx + 0.9, by + 0.42, 'sleep', 'front', { bed: true, sit: 0.42, yaw: Math.PI / 2, head: bx + 0.35 });
+
       // ---- meeting room behind glass, door at y 3.6–4.6
       const mx = OW;
       for (const [y, d] of [[0, 1], [1, 1], [2, 1], [3, 0.6], [4.6, MR - 4.6]]) this.glassX(add, mx, y, d);
@@ -654,25 +666,30 @@
     }
 
     // Someone to play a two-player game with: off duty, standing still and
-    // not already in a game. Lingering elsewhere is fine; they leave that spot.
+    // not already in a game or asleep. Lingering elsewhere is fine; they
+    // leave that spot.
     partner(p) {
       return [...this.people.values()].find((o) => o !== p && o.mode === 'wander' &&
-        !o.leaving && !o.path.length && !this.held(o) && !(o.poi && o.poi.pair));
+        !o.leaving && !o.path.length && !this.held(o) && !(o.poi && (o.poi.pair || o.poi.bed)));
     }
 
     wander(p, now) {
       if (p.path.length) return;
+      // Woken up (a new turn finished) but still off duty: get out of bed.
+      if (p.poi && p.poi.bed && !drowsy(p.s)) p.until = 0;
       if (p.poi && now < p.until) return;
       this.release(p);
       const plan = this.plan;
       // Desks are only for agents with a turn in progress; off-duty agents,
       // finished or idle, rest in the lounge instead of dozing at a desk.
-      const sleepy = p.s.status === 'idle';
+      const sleepy = drowsy(p.s);
       const nearDesk = (q) => plan.desks.some((d) => Math.hypot(q.x - d.seat.x, q.y - d.seat.y) < 1.2 ||
         (!plan.scene && q.x > d.x - 0.6 && q.x < d.x + 2 && q.y > d.y - 0.6 && q.y < d.y + 1.4));
-      const weighted = [];
-      for (const q of plan.pois) {
-        if (q.taken || nearDesk(q)) continue;
+      // Drowsy agents go straight to a free bed; nobody else lies down.
+      const bed = sleepy && plan.pois.find((q) => q.bed && !q.taken);
+      const weighted = bed ? [[bed, 1]] : [];
+      for (const q of bed ? [] : plan.pois) {
+        if (q.taken || nearDesk(q) || q.bed) continue;
         let w = 1;
         if (q.pair) {
           const spots = plan.pois.filter((o) => o.pair === q.pair);
@@ -692,7 +709,7 @@
       p.until = Infinity; // set on arrival
       // Long stays keep most of the office still, so frames can drop to the
       // calm rate; two-player games run at 30fps, so those stay short.
-      p.stay = (choice.pair ? rand(15, 30) : rand(30, 90)) * 1000;
+      p.stay = choice.bed ? Infinity : (choice.pair ? rand(15, 30) : rand(30, 90)) * 1000;
       this.goTo(p, choice);
       if (choice.pair) {
         const other = this.partner(p);
@@ -1035,6 +1052,36 @@
       this.box(x + 2.15, y + 0.12, 0.32, 0.35, 0.16, 0.28, '#e9c46a', '#d4ae52', '#c19c43');
     }
 
+    bed(x, y) {
+      const pal = this.pal;
+      this.box(x, y, 0, 1.8, 0.85, 0.28, this.shade(pal.deskTop, -5), pal.deskL, pal.deskR);
+      this.box(x - 0.08, y, 0, 0.08, 0.85, 0.8, this.shade(pal.deskTop, 5), pal.deskL, pal.deskR);
+      this.box(x + 0.02, y + 0.03, 0.28, 1.74, 0.79, 0.12, '#f4f1ea', '#dcd7cc', '#cbc5b8');
+      this.box(x + 0.1, y + 0.15, 0.4, 0.4, 0.55, 0.1, '#ffffff', '#e6e2da', '#d6d1c6');
+      this.box(x + 0.6, y + 0.03, 0.4, 1.16, 0.79, 0.03, '#7d93c4', '#6a80b0', '#5a6e9c');
+    }
+
+    // Lying in bed: head on the pillow, the rest under the blanket.
+    sleeper(p, st) {
+      const c = this.ctx;
+      const t = this.t / 1000;
+      const sc = p.s && p.s.subagent ? 0.8 : 1;
+      const breathe = Math.sin(t * 1.6 + p.phase) * 0.012;
+      const head = p.poi.head;
+      this.box(head + 0.2, p.y - 0.3, st.sitZ, 1.05, 0.6, 0.12 + breathe, '#8aa0d0', '#6a80b0', '#5a6e9c');
+      const h = this.iso(head, p.y, st.sitZ + 0.18);
+      c.fillStyle = p.skin;
+      c.beginPath(); c.arc(h.x, h.y, 7 * sc, 0, Math.PI * 2); c.fill();
+      c.fillStyle = p.hair;
+      c.beginPath(); c.arc(h.x - 1.5 * sc, h.y - 1.5 * sc, 7.3 * sc, Math.PI * 0.75, Math.PI * 1.75); c.fill();
+      c.fillStyle = '#2a2018';
+      c.fillRect(h.x - 1, h.y + 0.5, 1.6, 0.7);
+      c.fillRect(h.x + 3.4, h.y + 0.5, 1.6, 0.7);
+      const top = h.y - 8 * sc;
+      this.hit.push({ key: p.key, x0: h.x - 13, x1: h.x + 34, y0: top - 22, y1: h.y + 20 });
+      return { x: h.x, y: top, act: st.act };
+    }
+
     coffeeTable(x, y) {
       const pal = this.pal;
       this.box(x, y, 0, 1.6, 0.7, 0.3, this.shade(pal.deskTop, -10), pal.deskL, pal.deskR);
@@ -1272,6 +1319,7 @@
       if (p.mode === 'wander' && p.poi) {
         const q = p.poi;
         if (q.pair && !this.pairPlaying(q.pair)) return { pose: 'stand', face: q.face, act: null, sitZ: 0 };
+        if (q.bed) return { pose: 'lie', face: 'front', act: 'sleep', sitZ: q.sit };
         return { pose: q.sit ? 'sit' : 'stand', face: q.face === 'side' ? 'front' : q.face, act: q.act, sitZ: q.sit || 0 };
       }
       return { pose: 'stand', face: 'front', act: null, sitZ: 0 };
@@ -1283,6 +1331,7 @@
       const s = p.s || {};
       const st = this.stateOf(p);
       p.pose = st.pose;
+      if (st.pose === 'lie') return this.sleeper(p, st);
       const moving = st.pose === 'walk';
       const seated = st.pose === 'sit';
       const front = st.face !== 'back';
@@ -1398,7 +1447,7 @@
         if (p.hairStyle === 1) { c.fillRect(-7.3, hy - 2, 2.5, 8); c.fillRect(4.8, hy - 2, 2.5, 8); }
         if (p.hairStyle === 2) { c.beginPath(); c.arc(0, hy - 8, 3.2, 0, Math.PI * 2); c.fill(); }
         c.fillStyle = '#2a2018';
-        const sleepy = s.status === 'idle';
+        const sleepy = drowsy(s);
         const blink = Math.sin(t * 0.7 + p.phase * 3) > 0.985;
         c.fillRect(-3, hy - 0.5, 1.6, blink || sleepy ? 0.7 : 2);
         c.fillRect(1.6, hy - 0.5, 1.6, blink || sleepy ? 0.7 : 2);
@@ -1502,7 +1551,7 @@
         }
       } else if (p.mode === 'wander') {
         const justDone = st === 'done' && Date.now() - (s.lastEventAt || 0) < 3 * 60_000;
-        const dozing = (st === 'idle' && (at.act === 'couch' || at.act === 'beanbag' || (p.poi && p.poi.sleepy)));
+        const dozing = drowsy(s) && (at.act === 'couch' || at.act === 'beanbag' || at.act === 'sleep' || (p.poi && p.poi.sleepy));
         if (justDone) {
           c.fillStyle = STATUS_COLOR.done;
           c.beginPath(); c.arc(x, y - 10, 7, 0, Math.PI * 2); c.fill();
