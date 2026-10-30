@@ -426,12 +426,13 @@
         prop('plant', { x: OW - 0.45, y: D - 0.6 });
       }
 
-      // ---- bed in the front middle, below the foosball (or ping-pong) table
+      // ---- bed below the foosball (or ping-pong) table, against the front edge
       const BW = 2.2, BD = 1.1;
-      const bcy = Math.min(nap.y + 1.8, D - 0.1 - BD / 2);
-      let bx = bcy + nap.x - nap.y - BW / 2, by = bcy - BD / 2;
-      // Too little room below the ping-pong table: sit beside it on the front edge.
-      if (by < nap.bottom + 0.3) { by = D - 0.1 - BD; bx = Math.max(bx, tx + 2.9); }
+      const by = D - 0.02 - BD;
+      let bx = by + BD / 2 + nap.x - nap.y - BW / 2;
+      // Too little room below the ping-pong table: move along the edge beside it.
+      if (by < nap.bottom + 0.3) bx = Math.max(bx, tx + 2.9);
+      bx = Math.min(bx, OW - 1.15 - BW); // clear of the plant in the front corner
       const bed = { x: bx, y: by, w: BW, d: BD };
       add(bx + BW / 2 + by + BD / 2 - 0.05, () => this.bed(bed));
       prop('bed', bed);

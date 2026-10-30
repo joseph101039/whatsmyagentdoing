@@ -145,12 +145,12 @@ async function drawnLogos(target) {
    // On screen straight below the foosball table, and clear of the furniture
    // around it for every team size.
    const fb=plan.props.find(q=>q.t==='foosball');
-   const below=!!spot&&!!fb&&Math.abs((spot.x-spot.y)-((fb.x+0.8)-(fb.y+0.4)))<1e-6&&spot.y>fb.y+0.8;
+   const below=!!spot&&!!fb&&Math.abs((spot.x-spot.y)-((fb.x+0.8)-(fb.y+0.4)))<0.7&&spot.y>fb.y+0.8;
    const hit=(a,b)=>a.x<b.x+b.w&&b.x<a.x+a.w&&a.y<b.y+b.d&&b.y<a.y+a.d;
    const size={pingpong:[2.6,1.4],foosball:[1.6,0.8],booth:[1.4,1.4],vending:[0.75,0.75],plant:[0.4,0.4]};
    const clear=[1,5,9,14,20,30].every(n=>{
     const pl=office.buildPlan(n);const b=pl.props.find(q=>q.t==='bed');
-    const inside=b.x>0.2&&b.y>0&&b.x+b.w<pl.OW&&b.y+b.d<pl.D;
+    const inside=b.x>0.2&&b.y>0&&b.x+b.w<pl.OW&&b.y+b.d<pl.D&&b.y+b.d>pl.D-0.05; // flush with the front edge
     return inside&&b.w>=2.2&&b.d>=1.1&&pl.props.every(q=>!size[q.t]||!hit(b,{x:q.x-(q.t==='plant'?0.2:0),y:q.y-(q.t==='plant'?0.2:0),w:size[q.t][0],d:size[q.t][1]}));
    });
    const belowFoosball=below&&clear;
@@ -188,7 +188,7 @@ async function drawnLogos(target) {
    return {asleep,atDesk:p.mode==='work'&&!!p.desk,freed:!spot.taken&&!p.poi};
   });
   assert.deepEqual(toWork,{asleep:true,atDesk:true,freed:true});
-  check('the bed sits below the foosball table, clear of furniture at every team size, and is only for agents idle or done 30+ minutes, one at a time and never pulled into games; they lie there until their status changes');
+  check('the bed sits below the foosball table against the front edge, clear of furniture at every team size, and is only for agents idle or done 30+ minutes, one at a time and never pulled into games; they lie there until their status changes');
   const deskless=await page.evaluate(()=>{
    const now=Date.now();
    office.plan.fixed=true;office.plan.desks=office.plan.desks.slice(0,1);office.deskOf.clear();
