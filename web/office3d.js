@@ -526,10 +526,10 @@ export class Office3D extends window.Office {
         this.boxMesh(x, y, 0, p.w, p.d, 0.28, wood);
         this.boxMesh(x - 0.08, y, 0, 0.08, p.d, 0.8, wood);
         this.boxMesh(x + 0.02, y + 0.03, 0.28, p.w - 0.06, p.d - 0.06, 0.12, 0xf4f1ea, { rough: 0.95 });
-        this.boxMesh(x + 0.1, y + 0.15, 0.4, 0.4, 0.55, 0.1, 0xffffff, { rough: 0.95 });
-        this.boxMesh(x + 0.6, y + 0.03, 0.4, p.w - 0.64, p.d - 0.06, 0.03, 0x7d93c4, { rough: 0.95 });
+        this.boxMesh(x + 0.12, y + p.d * 0.18, 0.4, 0.45, p.d * 0.64, 0.1, 0xffffff, { rough: 0.95 });
+        this.boxMesh(x + 0.7, y + 0.03, 0.4, p.w - 0.74, p.d - 0.06, 0.03, 0x7d93c4, { rough: 0.95 });
         // pulled up over whoever is asleep; hidden while the bed is empty
-        this.bedCover = this.boxMesh(x + 0.5, y + 0.1, 0.43, p.w - 0.55, p.d - 0.2, 0.2, 0x8aa0d0, { rough: 0.95 });
+        this.bedCover = this.boxMesh(x + 0.55, y + p.d * 0.15, 0.43, p.w - 0.6, p.d * 0.7, 0.2, 0x8aa0d0, { rough: 0.95 });
         this.bedCover.visible = false;
         break;
       }
@@ -1073,6 +1073,8 @@ export class Office3D extends window.Office {
       let chosen = anim;
       if (st.act === 'station') chosen = p.s.status === 'thinking' ? 'idle' : (p.desk.anim || 'interact-right');
       else if (!p.path.length && p.poi && p.poi.anim && (!p.poi.pair || this.pairPlaying(p.poi.pair))) chosen = p.poi.anim;
+      const lying = st.pose === 'lie';
+      if (a.still && !lying) { a.still = false; if (a.actions.idle) a.actions.idle.paused = false; }
       this.play(a, chosen);
       a.mixer.update(dt);
 
@@ -1088,7 +1090,6 @@ export class Office3D extends window.Office {
       a.last = { x: p.x, y: p.y };
       a.obj.rotation.y = a.yaw;
       // Lying on the back, head on the pillow (the model's origin is at its feet).
-      const lying = st.pose === 'lie';
       a.obj.rotation.order = 'YXZ';
       a.obj.rotation.x = lying ? -Math.PI / 2 : 0;
       if (lying) {
@@ -1097,6 +1098,15 @@ export class Office3D extends window.Office {
         const len = CHAR_HEIGHT * (p.s.subagent ? 0.8 : 1);
         a.obj.position.set(p.poi.head - 0.2 + len, st.sitZ + 0.12, p.y);
         a.cup.visible = a.book.visible = false;
+        if (!a.still) {
+          // asleep means still: hold the idle clip's first frame
+          a.mixer.stopAllAction();
+          const idle = a.actions.idle;
+          if (idle) { idle.reset().setEffectiveWeight(1).play(); idle.paused = true; }
+          a.mixer.update(0);
+          a.current = 'idle';
+          a.still = true;
+        }
         sleeping = true;
         continue;
       }

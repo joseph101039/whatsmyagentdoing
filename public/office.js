@@ -385,6 +385,9 @@
 
       // ---- ping-pong corner
       const tx = 2.4, ty = OD + 1.0;
+      // The bed goes on screen straight below the foosball table, or below
+      // the ping-pong table when the front corner has no foosball.
+      let nap = { x: tx + 1.3, y: ty + 0.7, bottom: ty + 1.4 };
       add(tx + 1.3 + ty + 0.7, () => this.pingpong(tx, ty));
       prop('pingpong', { x: tx, y: ty });
       solid(tx, ty, 2.6, 1.4, 0.05);
@@ -407,6 +410,7 @@
         const fx = 3.0, fby = fy + 0.4;
         add(fx + 0.8 + fby + 0.4, () => this.foosball(fx, fby));
         prop('foosball', { x: fx, y: fby });
+        nap = { x: fx + 0.8, y: fby + 0.4, bottom: fby + 0.8 };
         solid(fx, fby, 1.6, 0.8, 0.05);
         poi(fx - 0.45, fby + 0.4, 'foosball', 'side', { pair: 'fb' });
         poi(fx + 2.05, fby + 0.4, 'foosball', 'side', { pair: 'fb' });
@@ -422,13 +426,18 @@
         prop('plant', { x: OW - 0.45, y: D - 0.6 });
       }
 
-      // ---- bed by the front door, along the front edge
-      const bx = 1.1, by = D - 0.95;
-      add(bx + 0.9 + by + 0.42 - 0.05, () => this.bed(bx, by));
-      prop('bed', { x: bx, y: by, w: 1.8, d: 0.85 });
-      solid(bx, by, 1.8, 0.85);
+      // ---- bed in the front middle, below the foosball (or ping-pong) table
+      const BW = 2.2, BD = 1.1;
+      const bcy = Math.min(nap.y + 1.8, D - 0.1 - BD / 2);
+      let bx = bcy + nap.x - nap.y - BW / 2, by = bcy - BD / 2;
+      // Too little room below the ping-pong table: sit beside it on the front edge.
+      if (by < nap.bottom + 0.3) { by = D - 0.1 - BD; bx = Math.max(bx, tx + 2.9); }
+      const bed = { x: bx, y: by, w: BW, d: BD };
+      add(bx + BW / 2 + by + BD / 2 - 0.05, () => this.bed(bed));
+      prop('bed', bed);
+      solid(bx, by, BW, BD);
       // head: where the sleeper's head rests on the pillow (both renderers)
-      poi(bx + 0.9, by + 0.42, 'sleep', 'front', { bed: true, sit: 0.42, yaw: Math.PI / 2, head: bx + 0.35 });
+      poi(bx + BW / 2, by + BD / 2, 'sleep', 'front', { bed, sit: 0.42, yaw: Math.PI / 2, head: bx + 0.36 });
 
       // ---- meeting room behind glass, door at y 3.6–4.6
       const mx = OW;
@@ -1052,23 +1061,21 @@
       this.box(x + 2.15, y + 0.12, 0.32, 0.35, 0.16, 0.28, '#e9c46a', '#d4ae52', '#c19c43');
     }
 
-    bed(x, y) {
+    bed({ x, y, w, d }) {
       const pal = this.pal;
-      this.box(x, y, 0, 1.8, 0.85, 0.28, this.shade(pal.deskTop, -5), pal.deskL, pal.deskR);
-      this.box(x - 0.08, y, 0, 0.08, 0.85, 0.8, this.shade(pal.deskTop, 5), pal.deskL, pal.deskR);
-      this.box(x + 0.02, y + 0.03, 0.28, 1.74, 0.79, 0.12, '#f4f1ea', '#dcd7cc', '#cbc5b8');
-      this.box(x + 0.1, y + 0.15, 0.4, 0.4, 0.55, 0.1, '#ffffff', '#e6e2da', '#d6d1c6');
-      this.box(x + 0.6, y + 0.03, 0.4, 1.16, 0.79, 0.03, '#7d93c4', '#6a80b0', '#5a6e9c');
+      this.box(x, y, 0, w, d, 0.28, this.shade(pal.deskTop, -5), pal.deskL, pal.deskR);
+      this.box(x - 0.08, y, 0, 0.08, d, 0.8, this.shade(pal.deskTop, 5), pal.deskL, pal.deskR);
+      this.box(x + 0.02, y + 0.03, 0.28, w - 0.06, d - 0.06, 0.12, '#f4f1ea', '#dcd7cc', '#cbc5b8');
+      this.box(x + 0.12, y + d * 0.18, 0.4, 0.45, d * 0.64, 0.1, '#ffffff', '#e6e2da', '#d6d1c6');
+      this.box(x + 0.7, y + 0.03, 0.4, w - 0.74, d - 0.06, 0.03, '#7d93c4', '#6a80b0', '#5a6e9c');
     }
 
-    // Lying in bed: head on the pillow, the rest under the blanket.
+    // Lying still in bed: head on the pillow, the rest under the blanket.
     sleeper(p, st) {
       const c = this.ctx;
-      const t = this.t / 1000;
       const sc = p.s && p.s.subagent ? 0.8 : 1;
-      const breathe = Math.sin(t * 1.6 + p.phase) * 0.012;
-      const head = p.poi.head;
-      this.box(head + 0.2, p.y - 0.3, st.sitZ, 1.05, 0.6, 0.12 + breathe, '#8aa0d0', '#6a80b0', '#5a6e9c');
+      const { bed, head } = p.poi;
+      this.box(head + 0.26, p.y - bed.d * 0.35, st.sitZ, bed.x + bed.w - head - 0.42, bed.d * 0.7, 0.12, '#8aa0d0', '#6a80b0', '#5a6e9c');
       const h = this.iso(head, p.y, st.sitZ + 0.18);
       c.fillStyle = p.skin;
       c.beginPath(); c.arc(h.x, h.y, 7 * sc, 0, Math.PI * 2); c.fill();

@@ -142,7 +142,18 @@ async function drawnLogos(target) {
   const bed=await page.evaluate(()=>{
    const original={people:office.people,pois:office.plan.pois,random:Math.random,now:Date.now};
    const plan=office.plan;const spot=plan.pois.find(q=>q.bed);
-   const nearDoor=!!spot&&Math.hypot(spot.x-plan.door.x,spot.y-plan.door.y)<2.5&&plan.props.some(q=>q.t==='bed');
+   // On screen straight below the foosball table, and clear of the furniture
+   // around it for every team size.
+   const fb=plan.props.find(q=>q.t==='foosball');
+   const below=!!spot&&!!fb&&Math.abs((spot.x-spot.y)-((fb.x+0.8)-(fb.y+0.4)))<1e-6&&spot.y>fb.y+0.8;
+   const hit=(a,b)=>a.x<b.x+b.w&&b.x<a.x+a.w&&a.y<b.y+b.d&&b.y<a.y+a.d;
+   const size={pingpong:[2.6,1.4],foosball:[1.6,0.8],booth:[1.4,1.4],vending:[0.75,0.75],plant:[0.4,0.4]};
+   const clear=[1,5,9,14,20,30].every(n=>{
+    const pl=office.buildPlan(n);const b=pl.props.find(q=>q.t==='bed');
+    const inside=b.x>0.2&&b.y>0&&b.x+b.w<pl.OW&&b.y+b.d<pl.D;
+    return inside&&b.w>=2.2&&b.d>=1.1&&pl.props.every(q=>!size[q.t]||!hit(b,{x:q.x-(q.t==='plant'?0.2:0),y:q.y-(q.t==='plant'?0.2:0),w:size[q.t][0],d:size[q.t][1]}));
+   });
+   const belowFoosball=below&&clear;
    const lounge={x:plan.W-1,y:plan.D-1,act:'couch',taken:null};
    const bedSpot={...spot,taken:null};
    const now=Date.now();Date.now=()=>now; // fixed clock for the 30-minute boundary
@@ -164,10 +175,10 @@ async function drawnLogos(target) {
     a.s={status:'idle',lastEventAt:now};office.wander(a,now);const idle=a.poi===bedSpot;
     a.path=[];a.s={status:'done',lastEventAt:Date.now()};office.wander(a,Date.now());
     const woke=a.poi!==bedSpot&&!bedSpot.taken;
-    return {nearDoor,freshStaysUp,under30,drowsyDone,shared,notPartner,lies,stays,idle,woke};
+    return {belowFoosball,freshStaysUp,under30,drowsyDone,shared,notPartner,lies,stays,idle,woke};
    }finally{office.people=original.people;office.plan.pois=original.pois;Math.random=original.random;Date.now=original.now;}
   });
-  assert.deepEqual(bed,{nearDoor:true,freshStaysUp:true,under30:true,drowsyDone:true,shared:true,notPartner:true,lies:true,stays:true,idle:true,woke:true});
+  assert.deepEqual(bed,{belowFoosball:true,freshStaysUp:true,under30:true,drowsyDone:true,shared:true,notPartner:true,lies:true,stays:true,idle:true,woke:true});
   const toWork=await page.evaluate(()=>{
    const now=Date.now();const spot=office.plan.pois.find(q=>q.bed);
    const mk=(status,t)=>({key:'claude:nap',id:'nap',agent:'claude',project:'p',status,lastEventAt:t,startedAt:now});
@@ -177,7 +188,7 @@ async function drawnLogos(target) {
    return {asleep,atDesk:p.mode==='work'&&!!p.desk,freed:!spot.taken&&!p.poi};
   });
   assert.deepEqual(toWork,{asleep:true,atDesk:true,freed:true});
-  check('the bed by the door is only for agents idle or done 30+ minutes, one at a time and never pulled into games; they lie there until their status changes');
+  check('the bed sits below the foosball table, clear of furniture at every team size, and is only for agents idle or done 30+ minutes, one at a time and never pulled into games; they lie there until their status changes');
   const deskless=await page.evaluate(()=>{
    const now=Date.now();
    office.plan.fixed=true;office.plan.desks=office.plan.desks.slice(0,1);office.deskOf.clear();
@@ -365,11 +376,15 @@ async function drawnLogos(target) {
     office.frame(performance.now());const emptyHidden=!!office.bedCover&&!office.bedCover.visible&&inRoom(office.bedCover);
     office.release(p);spot.taken=p.key;Object.assign(p,{poi:spot,x:spot.x,y:spot.y,path:[],mode:'wander',until:Infinity,s:{...p.s,status:'idle'}});
     office.frame(performance.now());const a=office.actors.get(p.key);
-    return {emptyHidden,shown:office.bedCover.visible,flat:Math.abs(a.obj.rotation.x+Math.PI/2)<1e-6,alongBed:Math.abs(a.yaw-Math.PI/2)<1e-6};
+    const pose=()=>{a.obj.updateMatrixWorld(true);const v=[];a.obj.traverse(o=>{if(o.isBone)v.push(o.quaternion.toArray().join())});return v.join('|')};
+    const p0=pose();
+    for(let i=0;i<5;i++)office.syncActors(0.2);
+    const still=a.still===true&&pose()===p0;
+    return {emptyHidden,shown:office.bedCover.visible,flat:Math.abs(a.obj.rotation.x+Math.PI/2)<1e-6,alongBed:Math.abs(a.yaw-Math.PI/2)<1e-6,still};
    }finally{office.release(p);Object.assign(p,saved);office.frame(performance.now());}
   });
-  assert.deepEqual(bed3d,{emptyHidden:true,shown:true,flat:true,alongBed:true});
-  check('3D bed: the blanket cover shows only while someone lies there, flat and lengthwise');
+  assert.deepEqual(bed3d,{emptyHidden:true,shown:true,flat:true,alongBed:true,still:true});
+  check('3D bed: the blanket cover shows only while someone lies there, flat, lengthwise and motionless');
   await openSettings(page);await page.selectOption('#langSel','zh-TW');await page.keyboard.press('Escape');
   assert.equal(await page.locator('#focusBtn').getAttribute('aria-label'),'只看辦公室');
   await openSettings(page);await page.selectOption('#langSel','auto');await page.keyboard.press('Escape');
