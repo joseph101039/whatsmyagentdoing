@@ -1769,10 +1769,11 @@
       if (this.offDuty > 0) {
         const d = this.iso(0.2, this.plan.door.y + 0.9, 0);
         c.font = '600 10px ui-sans-serif, system-ui, -apple-system, "PingFang TC", sans-serif';
-        c.textAlign = 'center';
+        // Right-aligned off the floor's corner so it clears the bed by the door.
+        c.textAlign = 'right';
         c.fillStyle = this.pal.text;
         c.globalAlpha = 0.65;
-        c.fillText(`+${this.offDuty} ${this.offDutyLabel}`, d.x - 10, d.y + 14);
+        c.fillText(`+${this.offDuty} ${this.offDutyLabel}`, d.x + 2, d.y + 14);
         c.globalAlpha = 1;
       }
 
