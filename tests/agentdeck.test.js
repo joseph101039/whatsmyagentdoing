@@ -111,6 +111,15 @@ test('shared app-server done over 5 min is not alive', () => {
   assert.equal(one([], [row({ ...base, state: 'working', updatedAt: iso(NOW - 60 * 60000) })]).alive, true);
 });
 
+test('daemon session with its terminal client still open stays alive', () => {
+  const base = { provider: 'codex', sessionId: 'x1', sharedProcess: true, state: 'done', updatedAt: iso(NOW - 60 * 60000) };
+  assert.equal(one([], [row({ ...base, clientAttached: true })]).alive, true);
+  // client closed: back to the shared rule
+  assert.equal(one([], [row({ ...base, clientAttached: false })]).alive, false);
+  // a gone process is gone, client or not
+  assert.equal(one([], [row({ ...base, clientAttached: true, running: false })]).alive, false);
+});
+
 test('ended log session marked not alive', () => {
   const out = mergeSessions([log({ id: 'old', status: 'done' })], feed([row()]), new Map(), NOW);
   assert.equal(out.find((s) => s.id === 'old').alive, false);

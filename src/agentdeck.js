@@ -71,6 +71,8 @@ class FeedSource {
 
 function isPresent(row, now) {
   if (!row.running) return false;
+  // A Codex daemon outlives its clients; an open terminal client is the proof.
+  if (row.clientAttached) return true;
   const quiet = now - (Date.parse(row.updatedAt) || 0);
   return !(row.sharedProcess && row.state === 'done' && quiet > SHARED_DONE_MS);
 }
