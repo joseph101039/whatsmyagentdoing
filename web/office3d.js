@@ -222,7 +222,9 @@ export class Office3D extends window.Office {
   // ------------------------------------------------------------ build room
 
   build() {
-    this.bedCover = null;
+    // Per-plan meshes animated every frame; a rebuilt plan without that prop
+    // must not keep driving the old one (rods look up the foosball prop).
+    this.bedCover = this.rods = this.ball = this.arcadeScreen = this.lampLight = null;
     if (this.plan.scene) return this.buildScene();
     const plan = this.plan;
     if (this.room) { this.scene.remove(this.room); }
@@ -1267,8 +1269,19 @@ export class Office3D extends window.Office {
       // fine
     } else {
       this.disposeBatches();
-      this.build();
+      // Marked built first: a build that throws must not be retried (and
+      // leak a fresh room) on every frame.
       this.builtPlan = this.plan;
+      try {
+        this.build();
+      } catch (e) {
+        // Never show a half-built room: report 3D as failed instead (while
+        // loading, the page falls back to 2D; later, the failure is drawn).
+        this.loaded = false;
+        this.loadError = String(e && e.message || e);
+        this.markReady(false);
+        throw e;
+      }
       this.room.updateMatrixWorld(true);
       this.batchStatic();
       this.seats = new Map();

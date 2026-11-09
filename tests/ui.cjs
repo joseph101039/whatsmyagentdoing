@@ -362,6 +362,29 @@ async function drawnLogos(target) {
    return {seatHeight:h0>0.3&&h0<0.75,disposed:disposed===old.length,rebatched:office.batches.length===old.length&&office.batches.every(g=>!old.includes(g))};
   });
   assert.deepEqual(rebuilt,{seatHeight:true,disposed:true,rebatched:true});
+  // A plan rebuilt without a foosball table drops the old rods, and a frame
+  // that throws anyway does not stop the loop (the office used to freeze).
+  const survives=await page.evaluate(()=>new Promise(r=>{
+   const plan=office.plan;office.plan={...plan,props:plan.props.filter(q=>q.t!=='foosball')};
+   const add=office.build;office.build=function(){add.call(this);this.plan=plan};
+   office.builtPlan=null;office.frame(performance.now());office.build=add;
+   const noRods=office.rods==null;
+   const f=office.frame,errs=[],log=console.error;let calls=0,thrown=0;
+   console.error=(...a)=>errs.push(a);
+   office.frame=function(t){calls++;if(thrown<3){thrown++;throw new Error('boom')}return f.call(this,t)};
+   office.wake(1000);
+   setTimeout(()=>{office.frame=f;console.error=log;r({noRods,thrown,after:calls-thrown>0,logged:errs.length,failures:office.failures})},800);
+  }));
+  assert.deepEqual(survives,{noRods:true,thrown:3,after:true,logged:1,failures:0});
+  const failedBuild=await page.evaluate(()=>{
+   const b=office.build;office.build=()=>{throw new Error('bad build')};office.builtPlan=null;
+   let threw=false;try{office.draw()}catch{threw=true}
+   const r={threw,loaded:office.loaded,again:office.draw()};
+   office.build=b;office.loaded=true;office.loadError=null;office.builtPlan=null;office.frame(performance.now());
+   return r;
+  });
+  assert.deepEqual(failedBuild,{threw:true,loaded:false,again:false},'a failed build is reported, never drawn half-built');
+  check('3D rebuilt without a foosball table drops stale rods; a throwing frame logs once and the loop keeps drawing');
   const glide=await page.evaluate(()=>{
    office.activeUntil=0;office.camera.position.x+=0.5;office.frame(performance.now());
    return office.activeUntil>performance.now()+100&&!office.lively.call({walking:()=>false,playing:()=>false});

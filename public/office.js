@@ -244,7 +244,19 @@
         if (this.dead) return;
         if (!document.hidden && t - this.drawnAt >= FRAME_MS - 2) {
           this.drawnAt = t;
-          this.frame(t);
+          // A frame that throws must not end the loop: the office would
+          // freeze on its last image until the page reloads. Log the first
+          // failure of a streak only, not one per frame; a renderer that
+          // keeps failing before it ever showed a frame reports not-ready so
+          // the page can fall back to 2D.
+          try {
+            this.frame(t);
+            this.failures = 0;
+          } catch (e) {
+            if (!this.failures) console.error('office frame failed:', e);
+            this.failures = (this.failures || 0) + 1;
+            if (this.failures >= 10 && this.framesShown < 3) this.markReady(false);
+          }
         }
         const hot = this.visible && !document.hidden && (performance.now() < this.activeUntil || this.lively());
         if (hot) this.pending = { raf: requestAnimationFrame(loop) };
